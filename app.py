@@ -165,18 +165,18 @@ def highlight_differences(original: str, edited: str) -> str:
     return ' '.join(html_parts)
 
 
-async def get_mongo_connection():
-    """Get MongoDB connection"""
+@st.cache_resource
+def get_cached_mongo_connection():
+    """Get cached MongoDB connection"""
     connection_string = st.secrets["MONGO_CONNECTION_STRING"]
     client = AsyncMongoClient(connection_string,
-                              tlsAllowInvalidCertificates=True)  # For development only
-    db = client['mtpe_database']
-    return db
+                          tlsAllowInvalidCertificates=True)
+    return client['mtpe_database']
 
 
 async def save_to_mongodb(user_name: str, user_surname: str, metrics_df: pd.DataFrame):
     """Save metrics and full text to MongoDB"""
-    db = await get_mongo_connection()
+    db = get_cached_mongo_connection()
     collection = db['user_progress']
 
     # Convert DataFrame to dict and add user info
@@ -199,7 +199,7 @@ async def save_to_mongodb(user_name: str, user_surname: str, metrics_df: pd.Data
 
 async def load_from_mongodb(user_name: str, user_surname: str) -> Tuple[pd.DataFrame, List[str]]:
     """Load metrics and full text from MongoDB"""
-    db = await get_mongo_connection()
+    db = get_cached_mongo_connection
     collection = db['user_progress']
 
     # Find user's progress
@@ -231,7 +231,7 @@ def hash_password(password: str) -> str:
 
 async def create_user(name: str, surname: str, password: str) -> bool:
     """Create a new user in MongoDB"""
-    db = await get_mongo_connection()
+    db = get_cached_mongo_connection()
     users = db['users']
     
     # Check if user already exists
@@ -257,7 +257,7 @@ async def create_user(name: str, surname: str, password: str) -> bool:
 
 async def verify_user(name: str, surname: str, password: str) -> bool:
     """Verify user credentials against MongoDB"""
-    db = await get_mongo_connection()
+    db = get_cached_mongo_connection()
     users = db['users']
     
     user = await users.find_one({

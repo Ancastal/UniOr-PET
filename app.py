@@ -176,7 +176,7 @@ def get_cached_mongo_connection():
 
 async def save_to_mongodb(user_name: str, user_surname: str, metrics_df: pd.DataFrame):
     """Save metrics and full text to MongoDB"""
-    db = get_cached_mongo_connection()
+    db = get_cached_mongo_connection()['mtpe_database']
     collection = db['user_progress']
 
     # Convert DataFrame to dict and add user info
@@ -199,7 +199,8 @@ async def save_to_mongodb(user_name: str, user_surname: str, metrics_df: pd.Data
 
 async def load_from_mongodb(user_name: str, user_surname: str) -> Tuple[pd.DataFrame, List[str]]:
     """Load metrics and full text from MongoDB"""
-    db = get_cached_mongo_connection
+    # Get the database connection from the cached function
+    db = get_cached_mongo_connection()['mtpe_database']
     collection = db['user_progress']
 
     # Find user's progress
@@ -231,7 +232,7 @@ def hash_password(password: str) -> str:
 
 async def create_user(name: str, surname: str, password: str) -> bool:
     """Create a new user in MongoDB"""
-    db = get_cached_mongo_connection()
+    db = get_cached_mongo_connection()['mtpe_database']
     users = db['users']
     
     # Check if user already exists
@@ -257,7 +258,7 @@ async def create_user(name: str, surname: str, password: str) -> bool:
 
 async def verify_user(name: str, surname: str, password: str) -> bool:
     """Verify user credentials against MongoDB"""
-    db = get_cached_mongo_connection()
+    db = get_cached_mongo_connection()['mtpe_database']
     users = db['users']
     
     user = await users.find_one({

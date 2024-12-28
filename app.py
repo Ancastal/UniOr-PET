@@ -187,7 +187,8 @@ async def save_to_mongodb(user_name: str, user_surname: str, metrics_df: pd.Data
         'last_updated': datetime.now(),
         'metrics': metrics_df.to_dict('records'),
         'full_text': st.session_state.segments,
-        'time_tracker': st.session_state.time_tracker.to_dict()
+        'time_tracker': st.session_state.time_tracker.to_dict(),
+        'timer_mode': st.session_state.timer_mode  # Add timer mode to saved data
     }
 
     # Update or insert document
@@ -211,10 +212,19 @@ async def load_from_mongodb(user_name: str, user_surname: str) -> Tuple[pd.DataF
     })
 
     if user_data:
-        # Load time tracker if available
+        # Load timer mode first if available
+        if 'timer_mode' in user_data:
+            st.session_state.timer_mode = user_data['timer_mode']
+            # Create TimeTracker with the correct timer mode
+            st.session_state.time_tracker = TimeTracker()
+            st.session_state.time_tracker.set_timer_mode(user_data['timer_mode'])
+        
+        # Then load time tracker data
         if 'time_tracker' in user_data:
             st.session_state.time_tracker = TimeTracker.from_dict(
-                user_data['time_tracker'])
+                user_data['time_tracker'],
+                timer_mode=user_data.get('timer_mode')  # Pass timer mode to from_dict
+            )
         
         # Return metrics and full text if they exist
         metrics = user_data.get('metrics', [])
@@ -438,28 +448,32 @@ def main():
             st.caption(
                 f"Last saved: {local_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Save/Load buttons
-        if st.button("💾 Save",  use_container_width=True):
-            with st.spinner("Saving progress..."):
-                # Save current segment's metrics first
-                current_source, current_translation = st.session_state.segments[st.session_state.current_segment]
-                edited_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
-                save_metrics(current_source, current_translation, edited_text)
-                
-                # Then save everything to MongoDB
-                df = pd.DataFrame([vars(m) for m in st.session_state.edit_metrics])
-                asyncio.run(save_to_mongodb(
-                    st.session_state.user_name, 
-                    st.session_state.user_surname, 
-                    df))
-                st.session_state.last_saved = datetime.now(timezone.utc)
-                st.success("Progress saved!")
+        col1, col2 = st.columns(2)
+        with col1:
+            # Save/Load buttons
+            if st.button("💾 Save",  use_container_width=True):
+                if st.session_state.segments:
+                    with st.spinner("Saving progress..."):
+                    # Save current segment's metrics first
+                        current_source, current_translation = st.session_state.segments[st.session_state.current_segment]
+                        edited_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
+                        save_metrics(current_source, current_translation, edited_text)
+                        
+                        # Then save everything to MongoDB
+                        df = pd.DataFrame([vars(m) for m in st.session_state.edit_metrics])
+                        asyncio.run(save_to_mongodb(
+                            st.session_state.user_name, 
+                            st.session_state.user_surname, 
+                            df))
+                        st.session_state.last_saved = datetime.now(timezone.utc)
+                        st.success("Progress saved!")
 
-        if st.button("📂 Load Progress", use_container_width=True):
-            with st.spinner("Loading previous work..."):
-                existing_data, full_text = asyncio.run(
-                    load_from_mongodb(st.session_state.user_name, 
-                                    st.session_state.user_surname))
+        with col2:
+            if st.button("📂 Load", use_container_width=True):
+                with st.spinner("Loading previous work..."):
+                    existing_data, full_text = asyncio.run(
+                        load_from_mongodb(st.session_state.user_name, 
+                                        st.session_state.user_surname))
                 
                 if not existing_data.empty and full_text:
                     # Create edit metrics from loaded data
@@ -490,7 +504,48 @@ def main():
                     st.success("Previous work loaded!")
                     st.rerun()
                 else:
-                    st.warning("No previous work found. Please upload new files to begin.")
+                    st.warning("No previous work found.")
+
+        # Add Clear Progress button with confirmation
+        if st.button("🗑️ Clear Progress", type="secondary", use_container_width=True):
+            # Show confirmation dialog
+            if 'show_clear_confirm' not in st.session_state:
+                st.session_state.show_clear_confirm = True
+                st.rerun()
+            
+        # Show confirmation dialog
+        if st.session_state.get('show_clear_confirm', False):
+            st.warning("⚠️ Are you sure you want to clear all progress? This cannot be undone!")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Yes, Clear Everything", type="primary", use_container_width=True):
+                    # Clear all progress
+                    st.session_state.edit_metrics = []
+                    st.session_state.segments = []
+                    st.session_state.current_segment = 0
+                    st.session_state.original_texts = {}
+                    st.session_state.time_tracker = TimeTracker()
+                    st.session_state.active_segment = None
+                    st.session_state.last_saved = None
+                    st.session_state.timer_mode = None  # Reset timer mode
+                    
+                    # Clear from MongoDB
+                    asyncio.run(save_to_mongodb(
+                        st.session_state.user_name,
+                        st.session_state.user_surname,
+                        pd.DataFrame()  # Empty DataFrame to clear progress
+                    ))
+                    
+                    # Reset confirmation dialog state
+                    st.session_state.show_clear_confirm = False
+                    st.success("Progress cleared successfully!")
+                    st.rerun()
+            
+            with col2:
+                if st.button("No, Keep My Progress", type="secondary", use_container_width=True):
+                    # Reset confirmation dialog state
+                    st.session_state.show_clear_confirm = False
+                    st.rerun()
 
     # Only show main content if authenticated
     if st.session_state.authenticated:
@@ -837,6 +892,9 @@ def main():
                         save_metrics(current_source, current_translation, edited_text)
                         st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                         st.session_state.current_segment -= 1
+                        # Ensure new segment starts paused in PET mode
+                        if st.session_state.timer_mode == "pet":
+                            st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
                         st.session_state.active_segment = None  # Reset active segment
                         st.rerun()
 
@@ -863,6 +921,9 @@ def main():
                             save_metrics(current_source, current_translation, edited_text)
                             st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                             st.session_state.current_segment += 1
+                            # Ensure new segment starts paused in PET mode
+                            if st.session_state.timer_mode == "pet":
+                                st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
                             st.session_state.active_segment = None  # Reset active segment
                             st.rerun()
                     else:
@@ -874,6 +935,9 @@ def main():
                             st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                             # Move to next segment
                             st.session_state.current_segment += 1
+                            # Ensure new segment starts paused in PET mode
+                            if st.session_state.timer_mode == "pet":
+                                st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
                             st.session_state.active_segment = None  # Reset active segment
                             st.rerun()
 

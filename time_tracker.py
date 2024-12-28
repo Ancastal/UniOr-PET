@@ -54,12 +54,22 @@ class TimeTracker:
         """Start tracking time for a segment"""
         current_time = datetime.now()
         if segment_id not in self.sessions:
+            # Always start paused in PET mode
+            is_pet_paused = self.timer_mode == "pet"
             self.sessions[segment_id] = EditingSession(
                 start_time=current_time,
                 last_activity=current_time,
-                is_pet_paused=self.timer_mode == "pet",  # Start paused in PET mode
-                is_paused=self.timer_mode == "pet"  # Also set is_paused for PET mode
+                is_pet_paused=is_pet_paused,  # Start paused in PET mode
+                is_paused=is_pet_paused  # Also set is_paused for PET mode
             )
+        else:
+            # If segment exists and we're in PET mode, ensure it's paused when switching to it
+            if self.timer_mode == "pet":
+                session = self.sessions[segment_id]
+                if not session.is_pet_paused:
+                    session.is_pet_paused = True
+                    session.is_paused = True
+                    session.pause_time = current_time
     
     def pause_segment(self, segment_id: int) -> None:
         """Pause time tracking for a segment"""
@@ -82,13 +92,15 @@ class TimeTracker:
             session = self.sessions[segment_id]
             current_time = datetime.now()
             
-            if session.pause_time:
-                pause_duration = (current_time - session.pause_time).total_seconds()
-                session.total_paused_time += pause_duration
-            
-            session.is_paused = False
-            session.pause_time = None
-            session.last_activity = current_time
+            # Only resume if not in PET mode or if explicitly started in PET mode
+            if self.timer_mode != "pet" or not session.is_pet_paused:
+                if session.pause_time:
+                    pause_duration = (current_time - session.pause_time).total_seconds()
+                    session.total_paused_time += pause_duration
+                
+                session.is_paused = False
+                session.pause_time = None
+                session.last_activity = current_time
     
     def update_activity(self, segment_id: int) -> None:
         """Update activity tracking"""
@@ -137,9 +149,12 @@ class TimeTracker:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'TimeTracker':
-        """Create TimeTracker from dictionary (for MongoDB retrieval)"""
+    def from_dict(cls, data: dict, timer_mode: str = None) -> 'TimeTracker':
+        """Create TimeTracker instance from dictionary data"""
         tracker = cls()
+        if timer_mode:
+            tracker.set_timer_mode(timer_mode)
+        
         if data and 'sessions' in data:
             tracker.sessions = {
                 int(k): EditingSession.from_dict(v) 

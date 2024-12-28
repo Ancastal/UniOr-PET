@@ -584,112 +584,209 @@ def main():
         if not st.session_state.segments:
             return
 
-        # Check if we've completed all segments
-        if st.session_state.current_segment >= len(st.session_state.segments):
-            st.divider()
-            display_results()
-
-        st.divider()
-
-        # Add segment selection dropdown
-        segment_idx = st.selectbox(
-            "Select segment to edit",
-            range(len(st.session_state.segments)),
-            index=st.session_state.current_segment,
-            format_func=lambda x: f"Segment {x + 1}",
-            key='segment_select'
-        )
-        st.session_state.current_segment = segment_idx
-
-        # Display progress
-        st.progress(st.session_state.current_segment /
-                    len(st.session_state.segments))
-
-        # After the progress bar and before displaying segments, add context control
-        with st.sidebar:
-            st.divider()
-            st.write("🔎 **Layout Settings**")
-            
-            # Add layout preference radio
-            layout_preference = st.radio(
-                "Layout Mode:",
-                ('centered', 'wide'),
-                index=0 if st.session_state['layout_preference'] == 'centered' else 1,
-                help="Choose between centered or wide layout",
-                horizontal=True
+        # Only show segment selection and editing interface if we haven't completed all segments
+        if st.session_state.current_segment < len(st.session_state.segments):
+            # Add segment selection dropdown
+            segment_idx = st.selectbox(
+                "Select segment to edit",
+                range(len(st.session_state.segments)),
+                index=st.session_state.current_segment,
+                format_func=lambda x: f"Segment {x + 1}",
+                key='segment_select'
             )
-            
-            # Update session state if layout preference changed
-            if layout_preference != st.session_state['layout_preference']:
-                st.session_state['layout_preference'] = layout_preference
-                st.rerun()
+            st.session_state.current_segment = segment_idx
+
+            # Display progress
+            st.progress(st.session_state.current_segment /
+                        len(st.session_state.segments))
+
+            # After the progress bar and before displaying segments, add context control
+            with st.sidebar:
+                st.divider()
+                st.write("🔎 **Layout Settings**")
                 
-            st.write("**📖 Editing Settings**")
-            # Add horizontal view toggle
-            if 'horizontal_view' not in st.session_state:
-                st.session_state.horizontal_view = False
-            
-            st.session_state.horizontal_view = st.toggle(
-                "Horizontal Editing",
-                value=st.session_state.horizontal_view,
-                help="Display source and translation segments side by side"
-            )
-
-
-            context_range = st.slider(
-                "Context Size",
-                min_value=0,
-                max_value=5,
-                value=2,
-                help="Number of segments to show before and after the current segment"
-            )
-
-
-
-        # Display current segment with improved styling
-        if st.session_state.segments:
-            start_idx = max(0, st.session_state.current_segment - context_range)
-            end_idx = min(len(st.session_state.segments), st.session_state.current_segment + context_range + 1)
-
-            with st.container(border=True):
-                # Initialize the initial value for the current segment
-                existing_edit = next(
-                    (m for m in st.session_state.edit_metrics
-                     if m.segment_id == st.session_state.current_segment),
-                    None
+                # Add layout preference radio
+                layout_preference = st.radio(
+                    "Layout Mode:",
+                    ('centered', 'wide'),
+                    index=0 if st.session_state['layout_preference'] == 'centered' else 1,
+                    help="Choose between centered or wide layout",
+                    horizontal=True
+                )
+                
+                # Update session state if layout preference changed
+                if layout_preference != st.session_state['layout_preference']:
+                    st.session_state['layout_preference'] = layout_preference
+                    st.rerun()
+                    
+                st.write("**📖 Editing Settings**")
+                # Add horizontal view toggle
+                if 'horizontal_view' not in st.session_state:
+                    st.session_state.horizontal_view = False
+                
+                st.session_state.horizontal_view = st.toggle(
+                    "Horizontal Editing",
+                    value=st.session_state.horizontal_view,
+                    help="Display source and translation segments side by side"
                 )
 
-                most_recent_edit = None
-                for metric in reversed(st.session_state.edit_metrics):
-                    if metric.segment_id == st.session_state.current_segment:
-                        most_recent_edit = metric
-                        break
 
-                current_source, current_translation = st.session_state.segments[st.session_state.current_segment]
-                initial_value = (most_recent_edit.edited if most_recent_edit
-                                else (existing_edit.edited if existing_edit
-                                      else current_translation))
+                context_range = st.slider(
+                    "Context Size",
+                    min_value=0,
+                    max_value=5,
+                    value=2,
+                    help="Number of segments to show before and after the current segment"
+                )
 
-                if st.session_state.current_segment not in st.session_state.original_texts:
-                    st.session_state.original_texts[st.session_state.current_segment] = initial_value
 
-                if st.session_state.current_segment != st.session_state.active_segment:
-                    if st.session_state.active_segment is not None:
-                        st.session_state.time_tracker.pause_segment(
-                            st.session_state.active_segment)
-                    st.session_state.time_tracker.start_segment(
-                        st.session_state.current_segment)
-                    if st.session_state.timer_mode != "pet" or not st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment):
-                        st.session_state.time_tracker.resume_segment(
+
+            # Display current segment with improved styling
+            if st.session_state.segments:
+                start_idx = max(0, st.session_state.current_segment - context_range)
+                end_idx = min(len(st.session_state.segments), st.session_state.current_segment + context_range + 1)
+
+                with st.container(border=True):
+                    # Initialize the initial value for the current segment
+                    existing_edit = next(
+                        (m for m in st.session_state.edit_metrics
+                         if m.segment_id == st.session_state.current_segment),
+                        None
+                    )
+
+                    most_recent_edit = None
+                    for metric in reversed(st.session_state.edit_metrics):
+                        if metric.segment_id == st.session_state.current_segment:
+                            most_recent_edit = metric
+                            break
+
+                    current_source, current_translation = st.session_state.segments[st.session_state.current_segment]
+                    initial_value = (most_recent_edit.edited if most_recent_edit
+                                    else (existing_edit.edited if existing_edit
+                                          else current_translation))
+
+                    if st.session_state.current_segment not in st.session_state.original_texts:
+                        st.session_state.original_texts[st.session_state.current_segment] = initial_value
+
+                    if st.session_state.current_segment != st.session_state.active_segment:
+                        if st.session_state.active_segment is not None:
+                            st.session_state.time_tracker.pause_segment(
+                                st.session_state.active_segment)
+                        st.session_state.time_tracker.start_segment(
                             st.session_state.current_segment)
-                    st.session_state.active_segment = st.session_state.current_segment
+                        if st.session_state.timer_mode != "pet" or not st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment):
+                            st.session_state.time_tracker.resume_segment(
+                                st.session_state.current_segment)
+                        st.session_state.active_segment = st.session_state.current_segment
 
-                if st.session_state.horizontal_view:
-                    # Horizontal view with two columns
-                    source_col, translation_col = st.columns(2)
-                    
-                    with source_col:                            
-                        # Previous context merged
+                    if st.session_state.horizontal_view:
+                        # Horizontal view with two columns
+                        source_col, translation_col = st.columns(2)
+                        
+                        with source_col:                            
+                            # Previous context merged
+                            if start_idx < st.session_state.current_segment:
+                                previous_segments = []
+                                for idx in range(start_idx, st.session_state.current_segment):
+                                    source, _ = st.session_state.segments[idx]
+                                    previous_segments.append(f"[{idx + 1}] {source}")
+                                
+                                if previous_segments:
+                                    st.text_area(
+                                        "",
+                                        value="\n\n".join(previous_segments),
+                                        disabled=True,
+                                        height=150,
+                                        key="source_prev_merged"
+                                    )
+                            
+                            # Current segment (highlighted)
+                            st.markdown("**🔍 Current Segment**")
+                            st.text_area(
+                                f"Source [{st.session_state.current_segment + 1}]",
+                                value=current_source,
+                                disabled=True,
+                                height=150,
+                                key=f"source_current",
+                                help="Current source segment"
+                            )
+                            
+                            # Following context merged
+                            if end_idx > st.session_state.current_segment + 1:
+                                following_segments = []
+                                for idx in range(st.session_state.current_segment + 1, end_idx):
+                                    source, _ = st.session_state.segments[idx]
+                                    following_segments.append(f"[{idx + 1}] {source}")
+                                
+                                if following_segments:
+                                    st.text_area(
+                                        "",
+                                        value="\n\n".join(following_segments),
+                                        disabled=True,
+                                        height=150,
+                                        key="source_next_merged"
+                                    )
+                        
+                        with translation_col:                            
+                            # Previous translations merged
+                            if start_idx < st.session_state.current_segment:
+                                previous_translations = []
+                                for idx in range(start_idx, st.session_state.current_segment):
+                                    _, translation = st.session_state.segments[idx]
+                                    # Get the most recent edit if available
+                                    context_text = next(
+                                        (m.edited for m in reversed(st.session_state.edit_metrics) 
+                                         if m.segment_id == idx),
+                                        translation
+                                    )
+                                    previous_translations.append(f"[{idx + 1}] {context_text}")
+                                
+                                if previous_translations:
+                                    st.text_area(
+                                        "",
+                                        value="\n\n".join(previous_translations),
+                                        disabled=True,
+                                        height=150,
+                                        key="trans_prev_merged"
+                                    )
+                            
+                            # Current translation (editable)
+                            st.markdown("**✏️ Current Translation**")
+                            is_pet_disabled = (st.session_state.timer_mode == "pet" and 
+                                           st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment))
+                            edited_text = st.text_area(
+                                f"Edit Translation [{st.session_state.current_segment + 1}]",
+                                value=initial_value,
+                                height=150,
+                                key=f"edit_area_{st.session_state.current_segment}",
+                                on_change=lambda: st.session_state.time_tracker.update_activity(st.session_state.current_segment),
+                                disabled=is_pet_disabled,
+                                help="Edit this translation" + (" (Timer paused)" if is_pet_disabled else "")
+                            )
+                            
+                            # Following translations merged
+                            if end_idx > st.session_state.current_segment + 1:
+                                following_translations = []
+                                for idx in range(st.session_state.current_segment + 1, end_idx):
+                                    _, translation = st.session_state.segments[idx]
+                                    # Get the most recent edit if available
+                                    context_text = next(
+                                        (m.edited for m in reversed(st.session_state.edit_metrics) 
+                                         if m.segment_id == idx),
+                                        translation
+                                    )
+                                    following_translations.append(f"[{idx + 1}] {context_text}")
+                                
+                                if following_translations:
+                                    st.text_area(
+                                        "",
+                                        value="\n\n".join(following_translations),
+                                        disabled=True,
+                                        height=150,
+                                        key="trans_next_merged"
+                                    )
+                    else:
+                        # Previous context merged into one text area
                         if start_idx < st.session_state.current_segment:
                             previous_segments = []
                             for idx in range(start_idx, st.session_state.current_segment):
@@ -697,26 +794,26 @@ def main():
                                 previous_segments.append(f"[{idx + 1}] {source}")
                             
                             if previous_segments:
-                                st.text_area(
-                                    "",
-                                    value="\n\n".join(previous_segments),
-                                    disabled=True,
-                                    height=150,
-                                    key="source_prev_merged"
-                                )
+                                st.write("**Previous segments:**")
+                                st.info("\n\n".join(previous_segments))
                         
                         # Current segment (highlighted)
-                        st.markdown("**🔍 Current Segment**")
-                        st.text_area(
-                            f"Source [{st.session_state.current_segment + 1}]",
-                            value=current_source,
-                            disabled=True,
-                            height=150,
-                            key=f"source_current",
-                            help="Current source segment"
-                        )
+                        st.markdown(f"**Current Segment [{st.session_state.current_segment + 1}]:**")
+                        st.warning(current_source)
                         
-                        # Following context merged
+                        # Current translation (editable)
+                        is_pet_disabled = (st.session_state.timer_mode == "pet" and 
+                                           st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment))
+                        edited_text = st.text_area(
+                            "Translation:",
+                            value=initial_value,
+                            key=f"edit_area_{st.session_state.current_segment}",
+                            on_change=lambda: st.session_state.time_tracker.update_activity(st.session_state.current_segment),
+                            disabled=is_pet_disabled,
+                            help="Edit this translation" + (" (Timer paused)" if is_pet_disabled else "")
+                        )
+
+                        # Following context merged into one text area
                         if end_idx > st.session_state.current_segment + 1:
                             following_segments = []
                             for idx in range(st.session_state.current_segment + 1, end_idx):
@@ -724,211 +821,114 @@ def main():
                                 following_segments.append(f"[{idx + 1}] {source}")
                             
                             if following_segments:
-                                st.text_area(
-                                    "",
-                                    value="\n\n".join(following_segments),
-                                    disabled=True,
-                                    height=150,
-                                    key="source_next_merged"
-                                )
-                    
-                    with translation_col:                            
-                        # Previous translations merged
-                        if start_idx < st.session_state.current_segment:
-                            previous_translations = []
-                            for idx in range(start_idx, st.session_state.current_segment):
-                                _, translation = st.session_state.segments[idx]
-                                # Get the most recent edit if available
-                                context_text = next(
-                                    (m.edited for m in reversed(st.session_state.edit_metrics) 
-                                     if m.segment_id == idx),
-                                    translation
-                                )
-                                previous_translations.append(f"[{idx + 1}] {context_text}")
-                            
-                            if previous_translations:
-                                st.text_area(
-                                    "",
-                                    value="\n\n".join(previous_translations),
-                                    disabled=True,
-                                    height=150,
-                                    key="trans_prev_merged"
-                                )
-                        
-                        # Current translation (editable)
-                        st.markdown("**✏️ Current Translation**")
-                        is_pet_disabled = (st.session_state.timer_mode == "pet" and 
-                                       st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment))
-                        edited_text = st.text_area(
-                            f"Edit Translation [{st.session_state.current_segment + 1}]",
-                            value=initial_value,
-                            height=150,
-                            key=f"edit_area_{st.session_state.current_segment}",
-                            on_change=lambda: st.session_state.time_tracker.update_activity(st.session_state.current_segment),
-                            disabled=is_pet_disabled,
-                            help="Edit this translation" + (" (Timer paused)" if is_pet_disabled else "")
-                        )
-                        
-                        # Following translations merged
-                        if end_idx > st.session_state.current_segment + 1:
-                            following_translations = []
-                            for idx in range(st.session_state.current_segment + 1, end_idx):
-                                _, translation = st.session_state.segments[idx]
-                                # Get the most recent edit if available
-                                context_text = next(
-                                    (m.edited for m in reversed(st.session_state.edit_metrics) 
-                                     if m.segment_id == idx),
-                                    translation
-                                )
-                                following_translations.append(f"[{idx + 1}] {context_text}")
-                            
-                            if following_translations:
-                                st.text_area(
-                                    "",
-                                    value="\n\n".join(following_translations),
-                                    disabled=True,
-                                    height=150,
-                                    key="trans_next_merged"
-                                )
-                else:
-                    # Previous context merged into one text area
-                    if start_idx < st.session_state.current_segment:
-                        previous_segments = []
-                        for idx in range(start_idx, st.session_state.current_segment):
-                            source, _ = st.session_state.segments[idx]
-                            previous_segments.append(f"[{idx + 1}] {source}")
-                        
-                        if previous_segments:
-                            st.write("**Previous segments:**")
-                            st.info("\n\n".join(previous_segments))
-                    
-                    # Current segment (highlighted)
-                    st.markdown(f"**Current Segment [{st.session_state.current_segment + 1}]:**")
-                    st.warning(current_source)
-                    
-                    # Current translation (editable)
-                    is_pet_disabled = (st.session_state.timer_mode == "pet" and 
-                                       st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment))
-                    edited_text = st.text_area(
-                        "Translation:",
-                        value=initial_value,
-                        key=f"edit_area_{st.session_state.current_segment}",
-                        on_change=lambda: st.session_state.time_tracker.update_activity(st.session_state.current_segment),
-                        disabled=is_pet_disabled,
-                        help="Edit this translation" + (" (Timer paused)" if is_pet_disabled else "")
-                    )
+                                st.markdown("**Following segments:**")
+                                st.info("\n\n".join(following_segments))
 
-                    # Following context merged into one text area
-                    if end_idx > st.session_state.current_segment + 1:
-                        following_segments = []
-                        for idx in range(st.session_state.current_segment + 1, end_idx):
-                            source, _ = st.session_state.segments[idx]
-                            following_segments.append(f"[{idx + 1}] {source}")
-                        
-                        if following_segments:
-                            st.markdown("**Following segments:**")
-                            st.info("\n\n".join(following_segments))
+                        # Remove duplicate initialization code
+                        if st.session_state.current_segment not in st.session_state.original_texts:
+                            st.session_state.original_texts[st.session_state.current_segment] = initial_value
 
-                # Remove duplicate initialization code
-                if st.session_state.current_segment not in st.session_state.original_texts:
-                    st.session_state.original_texts[st.session_state.current_segment] = initial_value
-
-        # Navigation buttons with emojis and improved layout
-        col1, col2, col3, col4 = st.columns([1, 0.5, 0.5, 1])
-        with col1:
-            if st.button("🔄 Previous",
-                         key="prev_segment",
-                         disabled=st.session_state.current_segment == 0):
-                save_metrics(current_source, current_translation, edited_text)
-                st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
-                st.session_state.current_segment -= 1
-                st.session_state.active_segment = None  # Reset active segment
-                st.rerun()
-
-        # Add PET Timer controls if in PET mode
-        if st.session_state.timer_mode == "pet":
-            is_paused = st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment)
-            
-            with col2:
-                if st.button("⏸️", key="pause_timer", disabled=is_paused):
-                    st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
-                    st.rerun()
-            
-            with col3:
-                if st.button("▶️", key="start_timer", disabled=not is_paused):
-                    st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
-                    st.rerun()
-
-        with col4:
-            # Check if we're on the last segment
-            is_last_segment = st.session_state.current_segment == len(st.session_state.segments) - 1
-
-            if is_last_segment:
-                if st.button("🏁 Finish", key="finish_button", type="primary"):
-                    save_metrics(current_source, current_translation, edited_text)
-                    st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
-                    st.session_state.current_segment += 1
-                    st.session_state.active_segment = None  # Reset active segment
-                    st.rerun()
-            else:
-                if st.button("Next ➡️", key="next_segment"):
-                    # Update final stats for current segment
-                    st.session_state.time_tracker.update_activity(st.session_state.current_segment)
-                    # Save metrics and pause tracking
-                    save_metrics(current_source, current_translation, edited_text)
-                    st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
-                    # Move to next segment
-                    st.session_state.current_segment += 1
-                    st.session_state.active_segment = None  # Reset active segment
-                    st.rerun()
-
-        # Show editing statistics in expander
-        if st.session_state.current_segment in st.session_state.time_tracker.sessions:
-            st.divider()
-            with st.expander("📊 Post-Editing Statistics", expanded=True):
-                col1, col2, col3, col4 = st.columns(4)
-
+                # Navigation buttons with emojis and improved layout
+                col1, col2, col3, col4 = st.columns([1, 0.5, 0.5, 1])
                 with col1:
-                    edit_time = st.session_state.time_tracker.get_editing_time(
-                        st.session_state.current_segment)
-                    minutes = int(edit_time // 60)
-                    seconds = int(edit_time % 60)
-                    st.metric(
-                        "Editing Time",
-                        f"{minutes}m {seconds}s",
-                        help="Time spent editing this segment"
-                    )
+                    if st.button("🔄 Previous",
+                                 key="prev_segment",
+                                 disabled=st.session_state.current_segment == 0):
+                        save_metrics(current_source, current_translation, edited_text)
+                        st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
+                        st.session_state.current_segment -= 1
+                        st.session_state.active_segment = None  # Reset active segment
+                        st.rerun()
 
-                with col2:
-                    if st.session_state.current_segment in st.session_state.time_tracker.sessions:
-                        idle_time = st.session_state.time_tracker.sessions[st.session_state.current_segment].idle_time
-                        idle_minutes = int(idle_time // 60)
-                        idle_seconds = int(idle_time % 60)
-                        st.metric(
-                            "Idle Time",
-                            f"{idle_minutes}m {idle_seconds}s",
-                            help="Time spent idle (>30s without activity)"
-                        )
-
-                insertions, deletions = calculate_edit_distance(
-                    current_translation, edited_text)
-                with col3:
-                    st.metric(
-                        "Insertions",
-                        f"{insertions}",
-                        help="Number of inserted words"
-                    )
+                # Add PET Timer controls if in PET mode
+                if st.session_state.timer_mode == "pet":
+                    is_paused = st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment)
+                    
+                    with col2:
+                        if st.button("⏸️", key="pause_timer", disabled=is_paused):
+                            st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
+                            st.rerun()
+                    
+                    with col3:
+                        if st.button("▶️", key="start_timer", disabled=not is_paused):
+                            st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
+                            st.rerun()
 
                 with col4:
-                    st.metric(
-                        "Deletions",
-                        f"{deletions}",
-                        help="Number of deleted words"
-                    )
+                    # Check if we're on the last segment
+                    is_last_segment = st.session_state.current_segment == len(st.session_state.segments) - 1
 
-            with st.expander("View Changes", expanded=True):
-                st.markdown(highlight_differences(
-                    current_translation, edited_text), unsafe_allow_html=True)
+                    if is_last_segment:
+                        if st.button("🏁 Finish", key="finish_button", type="primary"):
+                            save_metrics(current_source, current_translation, edited_text)
+                            st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
+                            st.session_state.current_segment += 1
+                            st.session_state.active_segment = None  # Reset active segment
+                            st.rerun()
+                    else:
+                        if st.button("Next ➡️", key="next_segment"):
+                            # Update final stats for current segment
+                            st.session_state.time_tracker.update_activity(st.session_state.current_segment)
+                            # Save metrics and pause tracking
+                            save_metrics(current_source, current_translation, edited_text)
+                            st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
+                            # Move to next segment
+                            st.session_state.current_segment += 1
+                            st.session_state.active_segment = None  # Reset active segment
+                            st.rerun()
+
+                # Show editing statistics in expander
+                if st.session_state.current_segment in st.session_state.time_tracker.sessions:
+                    st.divider()
+                    with st.expander("📊 Post-Editing Statistics", expanded=True):
+                        col1, col2, col3, col4 = st.columns(4)
+
+                        with col1:
+                            edit_time = st.session_state.time_tracker.get_editing_time(
+                                st.session_state.current_segment)
+                            minutes = int(edit_time // 60)
+                            seconds = int(edit_time % 60)
+                            st.metric(
+                                "Editing Time",
+                                f"{minutes}m {seconds}s",
+                                help="Time spent editing this segment"
+                            )
+
+                        with col2:
+                            if st.session_state.current_segment in st.session_state.time_tracker.sessions:
+                                idle_time = st.session_state.time_tracker.sessions[st.session_state.current_segment].idle_time
+                                idle_minutes = int(idle_time // 60)
+                                idle_seconds = int(idle_time % 60)
+                                st.metric(
+                                    "Idle Time",
+                                    f"{idle_minutes}m {idle_seconds}s",
+                                    help="Time spent idle (>30s without activity)"
+                                )
+
+                        insertions, deletions = calculate_edit_distance(
+                            current_translation, edited_text)
+                        with col3:
+                            st.metric(
+                                "Insertions",
+                                f"{insertions}",
+                                help="Number of inserted words"
+                            )
+
+                        with col4:
+                            st.metric(
+                                "Deletions",
+                                f"{deletions}",
+                                help="Number of deleted words"
+                            )
+
+                    with st.expander("View Changes", expanded=True):
+                        st.markdown(highlight_differences(
+                            current_translation, edited_text), unsafe_allow_html=True)
+
+        else:
+            # We've completed all segments, show the results
+            display_results()
+            return
 
     else:
         # Show welcome message for non-authenticated users

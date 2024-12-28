@@ -763,11 +763,12 @@ def main():
                                 
                                 if previous_segments:
                                     st.text_area(
-                                        "",
+                                        label="Previous Context",
                                         value="\n\n".join(previous_segments),
                                         disabled=True,
                                         height=150,
-                                        key="source_prev_merged"
+                                        key="source_prev_merged",
+                                        label_visibility="collapsed"
                                     )
                             
                             # Current segment (highlighted)
@@ -790,11 +791,12 @@ def main():
                                 
                                 if following_segments:
                                     st.text_area(
-                                        "",
+                                        label="Following Context",
                                         value="\n\n".join(following_segments),
                                         disabled=True,
                                         height=150,
-                                        key="source_next_merged"
+                                        key="source_next_merged",
+                                        label_visibility="collapsed"
                                     )
                         
                         with translation_col:                            
@@ -813,11 +815,12 @@ def main():
                                 
                                 if previous_translations:
                                     st.text_area(
-                                        "",
+                                        label="Previous Translations",
                                         value="\n\n".join(previous_translations),
                                         disabled=True,
                                         height=150,
-                                        key="trans_prev_merged"
+                                        key="trans_prev_merged",
+                                        label_visibility="collapsed"
                                     )
                             
                             # Current translation (editable)
@@ -849,11 +852,12 @@ def main():
                                 
                                 if following_translations:
                                     st.text_area(
-                                        "",
+                                        label="Following Translations",
                                         value="\n\n".join(following_translations),
                                         disabled=True,
                                         height=150,
-                                        key="trans_next_merged"
+                                        key="trans_next_merged",
+                                        label_visibility="collapsed"
                                     )
                     else:
                         # Previous context merged into one text area

@@ -26,6 +26,21 @@ st.set_page_config(
 
 st.title("🌍 UniOr Post-Editing Tool")
 
+# Inline HTML/CSS for a badge-like label
+badge_html = f"""
+<span style="
+    display: inline-block;
+    background-color: #ECF9EC;
+    color: #1B7F1B;
+    border: 1px solid #1B7F1B;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.85em;">
+  v{st.secrets["VERSION"]}
+</span>
+"""
+
+st.markdown(badge_html, unsafe_allow_html=True)
 
 st.logo("static/logo.png", size="large",
         link=None, icon_image="static/icon.png")

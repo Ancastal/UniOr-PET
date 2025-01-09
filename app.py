@@ -148,6 +148,8 @@ async def init_session_state():
         st.session_state.authenticated = False
     if 'timer_mode' not in st.session_state:
         st.session_state.timer_mode = None
+    if 'has_loaded_segments' not in st.session_state:
+        st.session_state.has_loaded_segments = False
 
 
 async def load_css():
@@ -467,7 +469,7 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             # Save/Load buttons
-            if st.button("💾 Save",  use_container_width=True):
+            if st.button("💾 Save",  use_container_width=True, disabled=True):
                 if st.session_state.segments:
                     with st.spinner("Saving progress..."):
                     # Save current segment's metrics first
@@ -485,7 +487,7 @@ def main():
                         st.success("Progress saved!")
 
         with col2:
-            if st.button("📂 Load", use_container_width=True):
+            if st.button("📂 Load", use_container_width=True, disabled=st.session_state.has_loaded_segments):
                 with st.spinner("Loading previous work..."):
                     existing_data, full_text = asyncio.run(
                         load_from_mongodb(st.session_state.user_name, 
@@ -508,6 +510,7 @@ def main():
                     
                     # Set segments and current segment
                     st.session_state.segments = full_text
+                    st.session_state.has_loaded_segments = True
                     
                     # Find the last edited segment
                     if st.session_state.edit_metrics:
@@ -544,6 +547,7 @@ def main():
                     st.session_state.active_segment = None
                     st.session_state.last_saved = None
                     st.session_state.timer_mode = None  # Reset timer mode
+                    st.session_state.has_loaded_segments = False  # Reset loaded segments flag
                     
                     # Clear from MongoDB
                     asyncio.run(save_to_mongodb(
@@ -609,6 +613,7 @@ def main():
 
         # File upload with styled container - only show if no segments are loaded
         if len(st.session_state.segments) == 0:
+            st.info("If you have a previous project, load it by clicking on the '📂 Load' button in the sidebar!")
             with st.container():
                 source_file = st.file_uploader(
                     "Upload source text file (one sentence per line)",

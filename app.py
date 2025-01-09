@@ -452,8 +452,9 @@ def main():
         # Idle timer toggle
         st.session_state.idle_timer_enabled = st.toggle(
             "Idle Timer", 
-            value=st.session_state.idle_timer_enabled,
-            help="When enabled, time spent idle (no activity for 30+ seconds) will be tracked separately"
+            value=False if st.session_state.timer_mode == "pet" else st.session_state.idle_timer_enabled,
+            help="When enabled, time spent idle (no activity for 30+ seconds) will be tracked separately",
+            disabled=st.session_state.timer_mode == "pet"
         )
 
         # Show last saved time if available
@@ -696,8 +697,9 @@ def main():
                 
                 st.session_state.horizontal_view = st.toggle(
                     "Horizontal Editing",
-                    value=st.session_state.horizontal_view,
-                    help="Display source and translation segments side by side"
+                    value=False if st.session_state.timer_mode == "pet" else st.session_state.horizontal_view,
+                    help="Display source and translation segments side by side",
+                    disabled=st.session_state.timer_mode == "pet"
                 )
 
 

@@ -24,7 +24,7 @@ st.set_page_config(
     layout=st.session_state['layout_preference']
 )
 
-st.title("🌍 UniOr Post-Editing Tool")
+st.title("🌍 UniOr Post-Editing MT Tool")
 
 # Inline HTML/CSS for a badge-like label
 badge_html = f"""

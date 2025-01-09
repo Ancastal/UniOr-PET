@@ -5,6 +5,7 @@ import streamlit as st
 
 @dataclass
 class EditingSession:
+    """Class to store metrics for each segment edit"""
     start_time: datetime
     pause_time: Optional[datetime] = None
     total_paused_time: float = 0.0
@@ -13,6 +14,7 @@ class EditingSession:
     active_time: float = 0.0  # Track actual active editing time
     idle_time: float = 0.0
     is_pet_paused: bool = False  # New field for PET timer mode
+    segment_view_time: Optional[datetime] = None  # Track when segment was first viewed
 
     def to_dict(self) -> dict:
         return {
@@ -23,7 +25,8 @@ class EditingSession:
             'last_activity': self.last_activity,
             'active_time': self.active_time,
             'idle_time': self.idle_time,
-            'is_pet_paused': self.is_pet_paused
+            'is_pet_paused': self.is_pet_paused,
+            'segment_view_time': self.segment_view_time
         }
 
     @classmethod
@@ -36,11 +39,13 @@ class EditingSession:
             last_activity=data.get('last_activity', datetime.now()),
             active_time=data.get('active_time', 0.0),
             idle_time=data.get('idle_time', 0.0),
-            is_pet_paused=data.get('is_pet_paused', False)
+            is_pet_paused=data.get('is_pet_paused', False),
+            segment_view_time=data.get('segment_view_time', None)
         )
 
 class TimeTracker:
     IDLE_THRESHOLD = 30  # 30 seconds idle threshold
+    MINIMUM_VIEW_TIME = 2  # 2 seconds minimum viewing time
 
     def __init__(self):
         self.sessions: Dict[int, EditingSession] = {}
@@ -60,7 +65,8 @@ class TimeTracker:
                 start_time=current_time,
                 last_activity=current_time,
                 is_pet_paused=is_pet_paused,  # Start paused in PET mode
-                is_paused=is_pet_paused  # Also set is_paused for PET mode
+                is_paused=is_pet_paused,  # Also set is_paused for PET mode
+                segment_view_time=current_time if is_pet_paused else None  # Set initial view time for PET mode
             )
         else:
             # If segment exists and we're in PET mode, ensure it's paused when switching to it
@@ -70,6 +76,8 @@ class TimeTracker:
                     session.is_pet_paused = True
                     session.is_paused = True
                     session.pause_time = current_time
+                if session.segment_view_time is None:
+                    session.segment_view_time = current_time
     
     def pause_segment(self, segment_id: int) -> None:
         """Pause time tracking for a segment"""
@@ -204,3 +212,15 @@ class TimeTracker:
     def is_pet_timer_paused(self, segment_id: int) -> bool:
         """Check if PET timer is paused for a segment"""
         return segment_id in self.sessions and self.sessions[segment_id].is_pet_paused
+
+    def can_start_pet_timer(self, segment_id: int) -> bool:
+        """Check if enough time has passed to start the PET timer"""
+        if segment_id not in self.sessions:
+            return False
+        
+        session = self.sessions[segment_id]
+        if session.segment_view_time is None:
+            return False
+            
+        time_since_view = (datetime.now() - session.segment_view_time).total_seconds()
+        return time_since_view >= self.MINIMUM_VIEW_TIME

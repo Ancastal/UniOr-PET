@@ -945,16 +945,31 @@ def main():
                 # Add PET Timer controls if in PET mode
                 if st.session_state.timer_mode == "pet":
                     is_paused = st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment)
+                    can_start = st.session_state.time_tracker.can_start_pet_timer(st.session_state.current_segment)
                     
                     with col2:
-                        if st.button("⏸️", key="pause_timer", disabled=is_paused):
+                        if st.button("⏸️", key="pause_timer", disabled=is_paused, use_container_width=True):
                             st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
                             st.rerun()
                     
                     with col3:
-                        if st.button("▶️", key="start_timer", disabled=not is_paused):
-                            st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
-                            st.rerun()
+                        if not can_start:
+                            # Show waiting message when timer can't be started yet
+                            session = st.session_state.time_tracker.sessions[st.session_state.current_segment]
+                            if session and session.segment_view_time:
+                                time_since_view = (datetime.now() - session.segment_view_time).total_seconds()
+                                remaining_time = max(0, st.session_state.time_tracker.MINIMUM_VIEW_TIME - time_since_view)
+                                st.button("⏳", key="waiting_timer", disabled=True, 
+                                        help=f"Please wait {remaining_time:.1f} seconds before starting",
+                                        use_container_width=True)
+                                # Force a rerun after a short delay if still waiting
+                                if remaining_time > 0:
+                                    time.sleep(0.1)  # Small delay to prevent too frequent reruns
+                                    st.rerun()
+                        else:
+                            if st.button("▶️", key="start_timer", disabled=not is_paused, use_container_width=True):
+                                st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
+                                st.rerun()
 
                 with col4:
                     # Check if we're on the last segment

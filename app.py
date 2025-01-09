@@ -300,6 +300,16 @@ async def verify_user(name: str, surname: str, password: str) -> bool:
     return user is not None
 
 
+def verify_time_recorded(segment_id: int) -> bool:
+    """Verify that time was recorded for the segment"""
+    if segment_id not in st.session_state.time_tracker.sessions:
+        return False
+        
+    edit_time = st.session_state.time_tracker.get_editing_time(segment_id)
+    
+    return edit_time > 1
+
+
 def main():
     asyncio.run(load_css())
     asyncio.run(init_session_state())
@@ -608,7 +618,7 @@ def main():
                         <p class="text-center text-muted">Feel free to send me an email for any feedback or suggestions.</p>
                     </div>
                     """, unsafe_allow_html=True)
-
+        st.warning("⚠️ Copy-paste operations are not allowed. Please type your edits manually.")
         asyncio.run(init_session_state())
 
         # File upload with styled container - only show if no segments are loaded
@@ -915,6 +925,14 @@ def main():
                     if st.button("🔄 Previous",
                                  key="prev_segment",
                                  disabled=st.session_state.current_segment == 0):
+                        # Verify time was recorded if segment was edited
+                        current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
+                        original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
+                        
+                        if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
+                            st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
+                            return
+                            
                         save_metrics(current_source, current_translation, edited_text)
                         st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                         st.session_state.current_segment -= 1
@@ -944,6 +962,14 @@ def main():
 
                     if is_last_segment:
                         if st.button("🏁 Finish", key="finish_button", type="primary"):
+                            # Verify time was recorded if segment was edited
+                            current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
+                            original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
+                            
+                            if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
+                                st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
+                                return
+                                
                             save_metrics(current_source, current_translation, edited_text)
                             st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                             st.session_state.current_segment += 1
@@ -954,6 +980,14 @@ def main():
                             st.rerun()
                     else:
                         if st.button("Next ➡️", key="next_segment"):
+                            # Verify time was recorded if segment was edited
+                            current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
+                            original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
+                            
+                            if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
+                                st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
+                                return
+                                
                             # Update final stats for current segment
                             st.session_state.time_tracker.update_activity(st.session_state.current_segment)
                             # Save metrics and pause tracking

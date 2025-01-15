@@ -1086,13 +1086,18 @@ def main():
                             if not can_start and session and session.segment_view_time:
                                 time_since_view = (datetime.now() - session.segment_view_time).total_seconds()
                                 remaining_time = max(0, st.session_state.time_tracker.MINIMUM_VIEW_TIME - time_since_view)
-                                st.button("⏳ Waiting...", key="waiting_timer", disabled=True, 
-                                        help=f"Please wait {remaining_time:.1f} seconds before starting",
-                                        use_container_width=True)
-                                # Force a rerun after a short delay if still waiting
                                 if remaining_time > 0:
+                                    st.button("⏳ Waiting...", key="waiting_timer", disabled=True, 
+                                            help=f"Please wait {remaining_time:.1f} seconds before starting",
+                                            use_container_width=True)
+                                    # Force a rerun after a short delay if still waiting
                                     time.sleep(0.1)  # Small delay to prevent too frequent reruns
                                     st.rerun()
+                                else:
+                                    # If time is up, show the start button
+                                    if st.button("▶️", key="start_timer", disabled=not is_paused, use_container_width=True):
+                                        st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
+                                        st.rerun()
                             elif st.button("▶️", key="start_timer", disabled=not is_paused, use_container_width=True):
                                 st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
                                 st.rerun()

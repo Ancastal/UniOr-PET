@@ -274,7 +274,7 @@ def main():
             if st.button("Reset Filters", type="secondary", use_container_width=True):
                 search_term = ""
                 min_edits = 0
-                st.experimental_rerun()
+                st.rerun()
         
         # Filter and display segments
         filtered_df = df.copy()
@@ -416,7 +416,7 @@ def main():
                             if result.deleted_count > 0:
                                 st.success(f"Data for {user['user_name']} {user['user_surname']} deleted successfully!")
                                 st.session_state.confirm_delete = None
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error("Failed to delete user data. Please try again.")
                                 st.session_state.confirm_delete = None
@@ -425,7 +425,7 @@ def main():
                                    key=f"delete_{user_id}",
                                    type="secondary"):
                             st.session_state.confirm_delete = user_id
-                            st.experimental_rerun()
+                            st.rerun()
                     
                     st.markdown("</div>", unsafe_allow_html=True)
             
@@ -458,7 +458,7 @@ def main():
                             if result.deleted_count > 0:
                                 st.success(f"Data for {user['user_name']} {user['user_surname']} deleted successfully!")
                                 st.session_state.confirm_delete = None
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error("Failed to delete user data. Please try again.")
                                 st.session_state.confirm_delete = None
@@ -467,7 +467,7 @@ def main():
                                    key=f"delete_{user_id}",
                                    type="secondary"):
                             st.session_state.confirm_delete = user_id
-                            st.experimental_rerun()
+                            st.rerun()
                     
                     st.markdown("</div>", unsafe_allow_html=True)
 

@@ -656,7 +656,19 @@ def main():
                         st.session_state.current_segment = last_edited_segment
                     else:
                         st.session_state.current_segment = 0
-                        
+                    
+                    # Reset timer states for all segments
+                    if st.session_state.timer_mode == "pet":
+                        # Clear all waiting time states
+                        keys_to_remove = [key for key in st.session_state.keys() if key.startswith('remaining_wait_time_')]
+                        for key in keys_to_remove:
+                            del st.session_state[key]
+                        # Reset timer states in TimeTracker
+                        for segment_id in range(len(full_text)):
+                            if segment_id in st.session_state.time_tracker.sessions:
+                                st.session_state.time_tracker.pause_pet_timer(segment_id)
+                                st.session_state.time_tracker.sessions[segment_id].segment_view_time = None
+                    
                     st.success("Previous work loaded!")
                     st.rerun()
                 else:
@@ -1068,6 +1080,9 @@ def main():
                             # Ensure new segment starts paused in PET mode
                             if st.session_state.timer_mode == "pet":
                                 st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
+                                # Reset waiting time for the new segment
+                                if 'remaining_wait_time' in st.session_state:
+                                    del st.session_state.remaining_wait_time
                             st.session_state.active_segment = None  # Reset active segment
                             st.rerun()
 
@@ -1086,18 +1101,27 @@ def main():
                             if not can_start and session and session.segment_view_time:
                                 time_since_view = (datetime.now() - session.segment_view_time).total_seconds()
                                 remaining_time = max(0, st.session_state.time_tracker.MINIMUM_VIEW_TIME - time_since_view)
-                                if remaining_time > 0:
-                                    st.button("⏳ Waiting...", key="waiting_timer", disabled=True, 
-                                            help=f"Please wait {remaining_time:.1f} seconds before starting",
-                                            use_container_width=True)
-                                    # Force a rerun after a short delay if still waiting
-                                    time.sleep(0.1)  # Small delay to prevent too frequent reruns
-                                    st.rerun()
-                                else:
-                                    # If time is up, show the start button
+                                
+                                # Store the remaining time in session state with segment-specific key
+                                wait_time_key = f'remaining_wait_time_{st.session_state.current_segment}'
+                                if wait_time_key not in st.session_state:
+                                    st.session_state[wait_time_key] = remaining_time
+                                
+                                if remaining_time <= 0 or st.session_state[wait_time_key] <= 0:
+                                    # Time is up, show the play button
                                     if st.button("▶️", key="start_timer", disabled=not is_paused, use_container_width=True):
                                         st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
                                         st.rerun()
+                                else:
+                                    # Still waiting, show hourglass
+                                    st.button("⏳ Waiting...", key="waiting_timer", disabled=True, 
+                                            help=f"Please wait {remaining_time:.1f} seconds before starting",
+                                            use_container_width=True)
+                                    # Update the remaining time in session state
+                                    st.session_state[wait_time_key] = remaining_time
+                                    # Force a rerun after a short delay if still waiting
+                                    time.sleep(0.1)  # Small delay to prevent too frequent reruns
+                                    st.rerun()
                             elif st.button("▶️", key="start_timer", disabled=not is_paused, use_container_width=True):
                                 st.session_state.time_tracker.start_pet_timer(st.session_state.current_segment)
                                 st.rerun()

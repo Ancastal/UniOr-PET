@@ -1,0 +1,18 @@
+# UniOR-PET Configuration
+mongodb:
+  enabled: true
+  connection_string: "${MONGO_CONNECTION_STRING}"
+  database_name: "mtpe_database"
+
+authentication:
+  method: "mongodb" # or "local" or "none"
+
+features:
+  auto_save: true
+  idle_timer: true
+  pet_timer: true
+
+interface:
+  default_layout: "centered"
+  logo_path: "static/logo.png"
+  version: "1.0.0"

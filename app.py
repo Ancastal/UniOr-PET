@@ -85,7 +85,7 @@ def calculate_edit_distance(original: str, edited: str) -> Tuple[int, int]:
     translator = str.maketrans('', '', string.punctuation)
     original_words = original.translate(translator).split()
     edited_words = edited.translate(translator).split()
-    
+
     d = difflib.Differ()
     diff = list(d.compare(original_words, edited_words))
 
@@ -132,6 +132,8 @@ async def init_session_state():
         st.session_state.user_name = ""
     if 'user_surname' not in st.session_state:
         st.session_state.user_surname = ""
+    if 'role' not in st.session_state:
+        st.session_state.role = ""
     if 'time_tracker' not in st.session_state:
         st.session_state.time_tracker = TimeTracker()
     if 'active_segment' not in st.session_state:
@@ -164,7 +166,7 @@ def highlight_differences(original: str, edited: str) -> str:
     translator = str.maketrans('', '', string.punctuation)
     original_words = original.translate(translator).split()
     edited_words = edited.translate(translator).split()
-    
+
     d = difflib.Differ()
     diff = list(d.compare(original_words, edited_words))
 
@@ -235,21 +237,21 @@ async def load_from_mongodb(user_name: str, user_surname: str) -> Tuple[pd.DataF
             # Create TimeTracker with the correct timer mode
             st.session_state.time_tracker = TimeTracker()
             st.session_state.time_tracker.set_timer_mode(user_data['timer_mode'])
-        
+
         # Then load time tracker data
         if 'time_tracker' in user_data:
             st.session_state.time_tracker = TimeTracker.from_dict(
                 user_data['time_tracker'],
                 timer_mode=user_data.get('timer_mode')  # Pass timer mode to from_dict
             )
-        
+
         # Return metrics and full text if they exist
         metrics = user_data.get('metrics', [])
         full_text = user_data.get('full_text', [])
-        
+
         if metrics and full_text:
             return pd.DataFrame(metrics), full_text
-    
+
     return pd.DataFrame(), []
 
 
@@ -258,71 +260,76 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-async def create_user(name: str, surname: str, password: str) -> bool:
+async def create_user(name: str, surname: str, password: str, role: str = "translator", mongo_connection: str = None) -> bool:
     """Create a new user in MongoDB"""
     client = get_cached_mongo_connection()
     db = client['mtpe_database']
     users = db['users']
-    
+
     # Check if user already exists
     existing_user = await users.find_one({
         'name': name,
         'surname': surname
     })
-    
+
     if existing_user:
         return False
-    
+
     # Create new user
     user_doc = {
         'name': name,
         'surname': surname,
         'password': hash_password(password),
-        'created_at': datetime.now(timezone.utc)
+        'role': role,
+        'created_at': datetime.now(timezone.utc),
+        'mongo_connection': mongo_connection
     }
-    
+
     await users.insert_one(user_doc)
     return True
 
 
-async def verify_user(name: str, surname: str, password: str) -> bool:
-    """Verify user credentials against MongoDB"""
+async def verify_user(name: str, surname: str, password: str) -> Tuple[bool, str]:
+    """Verify user credentials against MongoDB and return auth status and role"""
     client = get_cached_mongo_connection()
     db = client['mtpe_database']
     users = db['users']
-    
+
     user = await users.find_one({
         'name': name,
         'surname': surname,
         'password': hash_password(password)
     })
-    
-    return user is not None
+
+    if user is None:
+        return False, ""
+
+    return True, user.get('role', 'translator')
 
 
 def verify_time_recorded(segment_id: int) -> bool:
     """Verify that time was recorded for the segment"""
     if segment_id not in st.session_state.time_tracker.sessions:
         return False
-        
+
     edit_time = st.session_state.time_tracker.get_editing_time(segment_id)
-    
+
     return edit_time > 1
 
 
 def display_review_page():
     """Display the review page for all segments"""
     st.markdown("## 👀 Review All Segments")
-    
+
     # Back button
     if st.button("← Back to Editing"):
         st.session_state.show_review_page = False
         st.rerun()
-    
+
     if not st.session_state.segments:
         st.info("No segments loaded yet.")
         return
-        
+
     # Create a DataFrame with all segments first
     all_segments = []
     for idx, (source, translation) in enumerate(st.session_state.segments):
@@ -331,7 +338,7 @@ def display_review_page():
             (m for m in st.session_state.edit_metrics if m.segment_id == idx),
             None
         )
-        
+
         if edit_metric:
             # Use the edited version
             segment_data = vars(edit_metric)
@@ -347,10 +354,10 @@ def display_review_page():
                 'deletions': 0
             }
         all_segments.append(segment_data)
-    
+
     # Convert to DataFrame
     review_df = pd.DataFrame(all_segments)
-    
+
     # Add computed columns for better display
     review_df['total_edits'] = review_df['insertions'] + review_df['deletions']
     review_df['time_formatted'] = review_df['edit_time'].apply(
@@ -360,7 +367,7 @@ def display_review_page():
         lambda row: "Modified" if (row['insertions'] > 0 or row['deletions'] > 0) else "Unchanged",
         axis=1
     )
-    
+
     # Create a display DataFrame with selected columns
     display_df = pd.DataFrame()
     display_df['Segment'] = review_df['segment_id'] + 1  # 1-based indexing for display
@@ -370,7 +377,7 @@ def display_review_page():
     display_df['Edit Time'] = review_df['time_formatted']
     display_df['Total Edits'] = review_df['total_edits']
     display_df['Status'] = review_df['status']
-    
+
     # Add filters above the table
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
@@ -386,7 +393,7 @@ def display_review_page():
             "Sort by",
             ["Segment", "Edit Time", "Total Edits"]
         )
-    
+
     # Apply filters
     filtered_df = display_df.copy()
     if search:
@@ -394,11 +401,11 @@ def display_review_page():
             lambda x: x.str.contains(search, case=False)
         ).any(axis=1)
         filtered_df = filtered_df[mask]
-    
+
     # Fix status filtering
     if status_filter:
         filtered_df = filtered_df[filtered_df['Status'].isin(status_filter)]
-    
+
     # Apply sorting
     if sort_by == "Segment":
         filtered_df = filtered_df.sort_values("Segment")
@@ -406,14 +413,14 @@ def display_review_page():
         filtered_df = filtered_df.sort_values("Edit Time", ascending=False)
     elif sort_by == "Total Edits":
         filtered_df = filtered_df.sort_values("Total Edits", ascending=False)
-    
+
     # Display the table
     st.dataframe(
         filtered_df,
         hide_index=True,
         use_container_width=True
     )
-    
+
     # Add segment selection below the table
     st.divider()
     selected_segment = st.number_input(
@@ -435,37 +442,39 @@ def main():
     # Initialize review page state if not exists
     if 'show_review_page' not in st.session_state:
         st.session_state.show_review_page = False
-    
+
     if not st.session_state.authenticated:
-        
+
         # Welcome message with improved styling
         st.markdown("""
             <div class="welcome-card">
                 <p>Access your personalized post-editing workspace by logging in or creating a new account.</p>
             </div>
             """, unsafe_allow_html=True)
-        
+
         # Login/Register tabs with improved styling
         tabs = st.tabs(["🔑 Login", "✨ Register"])
-        
+
         with tabs[0]:
             with st.form("login_form"):
                 st.subheader("Welcome Back!")
                 name = st.text_input("Name", key="login_name", placeholder="Enter your name")
                 surname = st.text_input("Surname", key="login_surname", placeholder="Enter your surname")
-                password = st.text_input("Password", type="password", key="login_password", 
+                password = st.text_input("Password", type="password", key="login_password",
                                       placeholder="Enter your password")
-                
+
                 submit_button = st.form_submit_button("Sign In", use_container_width=True)
-                
+
                 # Add this new block to handle login
                 if submit_button:
                     if name and surname and password:
                         with st.spinner("Verifying credentials..."):
-                            if asyncio.run(verify_user(name, surname, password)):
+                            authenticated, role = asyncio.run(verify_user(name, surname, password))
+                            if authenticated:
                                 st.session_state.authenticated = True
                                 st.session_state.user_name = name
                                 st.session_state.user_surname = surname
+                                st.session_state.role = role
                                 st.success("Login successful!")
                                 st.rerun()
                             else:
@@ -487,45 +496,65 @@ def main():
                     </div>
                 </div>
             """, unsafe_allow_html=True)
-        
+
         with tabs[1]:
             with st.form("register_form"):
                 st.subheader("Create Account")
                 new_name = st.text_input("Name", key="reg_name", placeholder="Enter your name")
                 new_surname = st.text_input("Surname", key="reg_surname", placeholder="Enter your surname")
-                
+
                 # Password fields in columns for better layout
                 pass_col1, pass_col2 = st.columns(2)
                 with pass_col1:
-                    new_password = st.text_input("Password", type="password", 
-                                               key="reg_password", 
+                    new_password = st.text_input("Password", type="password",
+                                               key="reg_password",
                                                placeholder="Choose password")
                 with pass_col2:
-                    confirm_password = st.text_input("Confirm Password", 
+                    confirm_password = st.text_input("Confirm Password",
                                                    type="password",
                                                    placeholder="Repeat password")
-                
+                col1, col2 = st.columns(2)
+                with col1:
+                    placeholder_select = st.empty()
+                with col2:
+                    placeholder_mongo = st.empty()
+
                 # Password requirements hint
                 st.caption("""
                     Password requirements:
                     - At least 8 characters
                     - Mix of letters and numbers
                     """)
-                
+
                 register_button = st.form_submit_button("Create Account", use_container_width=True)
-                
+
                 if register_button:
                     if new_name and new_surname and new_password:
                         if len(new_password) < 8:
                             st.error("Password must be at least 8 characters long")
                             return
-                            
+
                         if new_password != confirm_password:
                             st.error("Passwords do not match")
                             return
-                        
+
+                        # Validate MongoDB connection string for Project Managers
+                        if role == "Project Manager":
+                            if not mongo_connection:
+                                st.error("MongoDB connection string is required for Project Managers")
+                                return
+
+                            # Validate the connection string
+                            validation_result = asyncio.run(validate_mongo_connection(mongo_connection))
+                            if validation_result is not True:
+                                st.error(f"Invalid MongoDB connection string: {validation_result}")
+                                return
+
                         with st.spinner("Creating your account..."):
-                            if asyncio.run(create_user(new_name, new_surname, new_password)):
+                            # Convert role selection to database value
+                            db_role = "project_manager" if role == "Project Manager" else "translator"
+                            # Include MongoDB connection string for project managers
+                            if asyncio.run(create_user(new_name, new_surname, new_password, db_role, mongo_connection if db_role == "project_manager" else None)):
                                 st.success("✅ Registration successful!")
                                 st.info("Please proceed to login with your credentials")
                                 # Clear registration fields
@@ -536,6 +565,22 @@ def main():
                                 st.error("An account with these details already exists")
                     else:
                         st.error("Please fill in all fields")
+
+            with placeholder_select:
+                    role = st.selectbox(
+                        "I am a...",
+                        ["Translator", "Project Manager"],
+                    )
+
+            with placeholder_mongo:
+                    if role == "Project Manager":
+                        # Show MongoDB connection string input for Project Managers
+                        mongo_connection = st.text_input(
+                                        "MongoDB Connection String",
+                                        type="password",
+                                        help="Enter your MongoDB connection string in the format: mongodb+srv://username:password@cluster.domain",
+                                        label_visibility="visible"
+                        )
 
             st.markdown("""
                 <div class="info-sidebar">
@@ -548,7 +593,7 @@ def main():
                     </ul>
                 </div>
             """, unsafe_allow_html=True)
-        
+
         # Footer with additional information
         st.markdown("""
             <div class="login-footer">
@@ -556,7 +601,7 @@ def main():
                 <p>Need help? Contact <a href="mailto:antonio.castaldo@phd.unipi.it">antonio.castaldo@phd.unipi.it</a></p>
             </div>
             """, unsafe_allow_html=True)
-        
+
         return
 
     # If authenticated, show sidebar and main content
@@ -575,22 +620,22 @@ def main():
 
         # Settings section only shown when logged in
         st.divider()
-        
+
         # Add Review All button at the top of settings
         if st.button("👀 Review All Segments", use_container_width=True):
             st.session_state.show_review_page = True
             st.rerun()
-            
+
         st.write("💾 **Save and Load**")
 
         # Auto-save toggle
-        
+
         st.session_state.auto_save = st.toggle(
             "Auto-Save", value=st.session_state.auto_save, help="Automatically save your progress as you edit")
 
         # Idle timer toggle
         st.session_state.idle_timer_enabled = st.toggle(
-            "Idle Timer", 
+            "Idle Timer",
             value=False if st.session_state.timer_mode == "pet" else st.session_state.idle_timer_enabled,
             help="When enabled, time spent idle (no activity for 30+ seconds) will be tracked separately",
             disabled=st.session_state.timer_mode == "pet"
@@ -613,12 +658,12 @@ def main():
                         current_source, current_translation = st.session_state.segments[st.session_state.current_segment]
                         edited_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
                         save_metrics(current_source, current_translation, edited_text)
-                        
+
                         # Then save everything to MongoDB
                         df = pd.DataFrame([vars(m) for m in st.session_state.edit_metrics])
                         asyncio.run(save_to_mongodb(
-                            st.session_state.user_name, 
-                            st.session_state.user_surname, 
+                            st.session_state.user_name,
+                            st.session_state.user_surname,
                             df))
                         st.session_state.last_saved = datetime.now(timezone.utc)
                         st.success("Progress saved!")
@@ -627,9 +672,9 @@ def main():
             if st.button("📂 Load", use_container_width=True, disabled=st.session_state.has_loaded_segments):
                 with st.spinner("Loading previous work..."):
                     existing_data, full_text = asyncio.run(
-                        load_from_mongodb(st.session_state.user_name, 
+                        load_from_mongodb(st.session_state.user_name,
                                         st.session_state.user_surname))
-                
+
                 if not existing_data.empty and full_text:
                     # Create edit metrics from loaded data
                     st.session_state.edit_metrics = [
@@ -644,11 +689,11 @@ def main():
                         )
                         for _, row in existing_data.iterrows()
                     ]
-                    
+
                     # Set segments and current segment
                     st.session_state.segments = full_text
                     st.session_state.has_loaded_segments = True
-                    
+
                     # Find the last edited segment
                     if st.session_state.edit_metrics:
                         last_edited_segment = max(
@@ -656,7 +701,7 @@ def main():
                         st.session_state.current_segment = last_edited_segment
                     else:
                         st.session_state.current_segment = 0
-                    
+
                     # Reset timer states for all segments
                     if st.session_state.timer_mode == "pet":
                         # Clear all waiting time states
@@ -668,7 +713,7 @@ def main():
                             if segment_id in st.session_state.time_tracker.sessions:
                                 st.session_state.time_tracker.pause_pet_timer(segment_id)
                                 st.session_state.time_tracker.sessions[segment_id].segment_view_time = None
-                    
+
                     st.success("Previous work loaded!")
                     st.rerun()
                 else:
@@ -680,7 +725,7 @@ def main():
             if 'show_clear_confirm' not in st.session_state:
                 st.session_state.show_clear_confirm = True
                 st.rerun()
-            
+
         # Show confirmation dialog
         if st.session_state.get('show_clear_confirm', False):
             st.warning("⚠️ Are you sure you want to clear all progress? This cannot be undone!")
@@ -697,19 +742,19 @@ def main():
                     st.session_state.last_saved = None
                     st.session_state.timer_mode = None  # Reset timer mode
                     st.session_state.has_loaded_segments = False  # Reset loaded segments flag
-                    
+
                     # Clear from MongoDB
                     asyncio.run(save_to_mongodb(
                         st.session_state.user_name,
                         st.session_state.user_surname,
                         pd.DataFrame()  # Empty DataFrame to clear progress
                     ))
-                    
+
                     # Reset confirmation dialog state
                     st.session_state.show_clear_confirm = False
                     st.success("Progress cleared successfully!")
                     st.rerun()
-            
+
             with col2:
                 if st.button("No, Keep My Progress", type="secondary", use_container_width=True):
                     # Reset confirmation dialog state
@@ -793,7 +838,7 @@ def main():
                             """,
                             horizontal=True
                         )
-                        
+
                         if st.button("Start Project", type="primary"):
                             st.session_state.timer_mode = "current" if timer_mode == "Current Timer" else "pet"
                             st.session_state.time_tracker.set_timer_mode(st.session_state.timer_mode)
@@ -833,7 +878,7 @@ def main():
                 with st.sidebar:
                     st.divider()
                     st.write("🔎 **Layout Settings**")
-                    
+
                     # Add layout preference radio
                     layout_preference = st.radio(
                         "Layout Mode:",
@@ -842,17 +887,17 @@ def main():
                         help="Choose between centered or wide layout",
                         horizontal=True
                     )
-                    
+
                     # Update session state if layout preference changed
                     if layout_preference != st.session_state['layout_preference']:
                         st.session_state['layout_preference'] = layout_preference
                         st.rerun()
-                        
+
                     st.write("**📖 Editing Settings**")
                     # Add horizontal view toggle
                     if 'horizontal_view' not in st.session_state:
                         st.session_state.horizontal_view = False
-                    
+
                     st.session_state.horizontal_view = st.toggle(
                         "Horizontal Editing",
                         value=False if st.session_state.timer_mode == "pet" else st.session_state.horizontal_view,
@@ -910,15 +955,15 @@ def main():
                         if st.session_state.horizontal_view:
                             # Horizontal view with two columns
                             source_col, translation_col = st.columns(2)
-                            
-                            with source_col:                            
+
+                            with source_col:
                                 # Previous context merged
                                 if start_idx < st.session_state.current_segment:
                                     previous_segments = []
                                     for idx in range(start_idx, st.session_state.current_segment):
                                         source, _ = st.session_state.segments[idx]
                                         previous_segments.append(f"[{idx + 1}] {source}")
-                                    
+
                                     if previous_segments:
                                         st.text_area(
                                             label="Previous Context",
@@ -928,7 +973,7 @@ def main():
                                             key="source_prev_merged",
                                             label_visibility="collapsed"
                                         )
-                                
+
                                 # Current segment (highlighted)
                                 st.markdown("**🔍 Current Segment**")
                                 st.text_area(
@@ -939,14 +984,14 @@ def main():
                                     key=f"source_current",
                                     help="Current source segment"
                                 )
-                                
+
                                 # Following context merged
                                 if end_idx > st.session_state.current_segment + 1:
                                     following_segments = []
                                     for idx in range(st.session_state.current_segment + 1, end_idx):
                                         source, _ = st.session_state.segments[idx]
                                         following_segments.append(f"[{idx + 1}] {source}")
-                                    
+
                                     if following_segments:
                                         st.text_area(
                                             label="Following Context",
@@ -956,8 +1001,8 @@ def main():
                                             key="source_next_merged",
                                             label_visibility="collapsed"
                                         )
-                            
-                            with translation_col:                            
+
+                            with translation_col:
                                 # Previous translations merged
                                 if start_idx < st.session_state.current_segment:
                                     previous_translations = []
@@ -965,12 +1010,12 @@ def main():
                                         _, translation = st.session_state.segments[idx]
                                         # Get the most recent edit if available
                                         context_text = next(
-                                            (m.edited for m in reversed(st.session_state.edit_metrics) 
+                                            (m.edited for m in reversed(st.session_state.edit_metrics)
                                              if m.segment_id == idx),
                                             translation
                                         )
                                         previous_translations.append(f"[{idx + 1}] {context_text}")
-                                    
+
                                     if previous_translations:
                                         st.text_area(
                                             label="Previous Translations",
@@ -980,10 +1025,10 @@ def main():
                                             key="trans_prev_merged",
                                             label_visibility="collapsed"
                                         )
-                                
+
                                 # Current translation (editable)
                                 st.markdown("**✏️ Current Translation**")
-                                is_pet_disabled = (st.session_state.timer_mode == "pet" and 
+                                is_pet_disabled = (st.session_state.timer_mode == "pet" and
                                                st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment))
                                 edited_text = st.text_area(
                                     f"Edit Translation [{st.session_state.current_segment + 1}]",
@@ -994,7 +1039,7 @@ def main():
                                     disabled=is_pet_disabled,
                                     help="Edit this translation" + (" (Timer paused)" if is_pet_disabled else "")
                                 )
-                                
+
                                 # Following translations merged
                                 if end_idx > st.session_state.current_segment + 1:
                                     following_translations = []
@@ -1002,12 +1047,12 @@ def main():
                                         _, translation = st.session_state.segments[idx]
                                         # Get the most recent edit if available
                                         context_text = next(
-                                            (m.edited for m in reversed(st.session_state.edit_metrics) 
+                                            (m.edited for m in reversed(st.session_state.edit_metrics)
                                              if m.segment_id == idx),
                                             translation
                                         )
                                         following_translations.append(f"[{idx + 1}] {context_text}")
-                                    
+
                                     if following_translations:
                                         st.text_area(
                                             label="Following Translations",
@@ -1024,17 +1069,17 @@ def main():
                                 for idx in range(start_idx, st.session_state.current_segment):
                                     source, _ = st.session_state.segments[idx]
                                     previous_segments.append(f"[{idx + 1}] {source}")
-                                
+
                                 if previous_segments:
                                     st.write("**Previous segments:**")
                                     st.info("\n\n".join(previous_segments))
-                            
+
                             # Current segment (highlighted)
                             st.markdown(f"**Current Segment [{st.session_state.current_segment + 1}]:**")
                             st.warning(current_source)
-                            
+
                             # Current translation (editable)
-                            is_pet_disabled = (st.session_state.timer_mode == "pet" and 
+                            is_pet_disabled = (st.session_state.timer_mode == "pet" and
                                                st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment))
                             edited_text = st.text_area(
                                 "Translation:",
@@ -1051,7 +1096,7 @@ def main():
                                 for idx in range(st.session_state.current_segment + 1, end_idx):
                                     source, _ = st.session_state.segments[idx]
                                     following_segments.append(f"[{idx + 1}] {source}")
-                                
+
                                 if following_segments:
                                     st.markdown("**Following segments:**")
                                     st.info("\n\n".join(following_segments))
@@ -1069,11 +1114,11 @@ def main():
                             # Verify time was recorded if segment was edited
                             current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
                             original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
-                            
+
                             if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
                                 st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
                                 return
-                                
+
                             save_metrics(current_source, current_translation, edited_text)
                             st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                             st.session_state.current_segment -= 1
@@ -1090,23 +1135,23 @@ def main():
                     if st.session_state.timer_mode == "pet":
                         is_paused = st.session_state.time_tracker.is_pet_timer_paused(st.session_state.current_segment)
                         can_start = st.session_state.time_tracker.can_start_pet_timer(st.session_state.current_segment)
-                        
+
                         with col2:
                             if st.button("⏸️", key="pause_timer", disabled=is_paused, use_container_width=True):
                                 st.session_state.time_tracker.pause_pet_timer(st.session_state.current_segment)
                                 st.rerun()
-                        
+
                         with col3:
                             session = st.session_state.time_tracker.sessions[st.session_state.current_segment]
                             if not can_start and session and session.segment_view_time:
                                 time_since_view = (datetime.now() - session.segment_view_time).total_seconds()
                                 remaining_time = max(0, st.session_state.time_tracker.MINIMUM_VIEW_TIME - time_since_view)
-                                
+
                                 # Store the remaining time in session state with segment-specific key
                                 wait_time_key = f'remaining_wait_time_{st.session_state.current_segment}'
                                 if wait_time_key not in st.session_state:
                                     st.session_state[wait_time_key] = remaining_time
-                                
+
                                 if remaining_time <= 0 or st.session_state[wait_time_key] <= 0:
                                     # Time is up, show the play button
                                     if st.button("▶️", key="start_timer", disabled=not is_paused, use_container_width=True):
@@ -1114,7 +1159,7 @@ def main():
                                         st.rerun()
                                 else:
                                     # Still waiting, show hourglass
-                                    st.button("⏳ Waiting...", key="waiting_timer", disabled=True, 
+                                    st.button("⏳ Waiting...", key="waiting_timer", disabled=True,
                                             help=f"Please wait {remaining_time:.1f} seconds before starting",
                                             use_container_width=True)
                                     # Update the remaining time in session state
@@ -1135,11 +1180,11 @@ def main():
                                 # Verify time was recorded if segment was edited
                                 current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
                                 original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
-                                
+
                                 if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
                                     st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
                                     return
-                                    
+
                                 save_metrics(current_source, current_translation, edited_text)
                                 st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                                 st.session_state.current_segment += 1
@@ -1153,11 +1198,11 @@ def main():
                                 # Verify time was recorded if segment was edited
                                 current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
                                 original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
-                                
+
                                 if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
                                     st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
                                     return
-                                    
+
                                 # Update final stats for current segment
                                 st.session_state.time_tracker.update_activity(st.session_state.current_segment)
                                 # Save metrics and pause tracking
@@ -1227,9 +1272,9 @@ def main():
 
                 # Convert metrics to DataFrame for the review
                 review_df = pd.DataFrame([vars(m) for m in st.session_state.edit_metrics])
-                
+
                 # Add search functionality
-                search_term = st.text_input("🔍 Search in segments", 
+                search_term = st.text_input("🔍 Search in segments",
                                           help="Search in source text, original translation, or post-edited text")
 
                 # Add filter options
@@ -1240,7 +1285,7 @@ def main():
                         ["Segment ID", "Edit Time", "Number of Edits"],
                         help="Choose how to sort the segments"
                     )
-                
+
                 with col2:
                     filter_edited = st.multiselect(
                         "Filter segments",
@@ -1273,14 +1318,14 @@ def main():
                 for _, row in review_df.iterrows():
                     with st.expander(f"Segment {row['segment_id'] + 1}"):
                         col1, col2 = st.columns(2)
-                        
+
                         with col1:
                             st.markdown("**Source Text:**")
                             st.info(row['source'])
-                            
+
                             st.markdown("**Original Translation:**")
                             st.warning(row['original'])
-                        
+
                         with col2:
                             st.markdown("**Post-Edited Translation:**")
                             if row['original'] != row['edited']:
@@ -1290,7 +1335,7 @@ def main():
                                 st.markdown(highlight_differences(row['original'], row['edited']), unsafe_allow_html=True)
                             else:
                                 st.info("No changes made")
-                        
+
                         # Show metrics
                         m1, m2, m3 = st.columns(3)
                         with m1:
@@ -1302,7 +1347,7 @@ def main():
                             st.metric("Insertions", row['insertions'])
                         with m3:
                             st.metric("Deletions", row['deletions'])
-                        
+
                         # Add button to jump back to this segment for editing
                         if st.button("✏️ Edit this segment", key=f"edit_btn_{row['segment_id']}"):
                             st.session_state.current_segment = row['segment_id']
@@ -1324,8 +1369,8 @@ def main():
 
 def save_metrics(source: str, original: str, edited: str):
     """Save metrics for the current segment"""
-    if edited == st.session_state.original_texts.get(st.session_state.current_segment, original):
-        return
+    #if edited == st.session_state.original_texts.get(st.session_state.current_segment, original):
+    #    return
 
     edit_time = st.session_state.time_tracker.get_editing_time(
         st.session_state.current_segment)
@@ -1430,6 +1475,16 @@ def display_results():
                     <p>Feel free to send me an email for any feedback or suggestions.</p>
                 </div>
         """, unsafe_allow_html=True)
+
+
+async def validate_mongo_connection(connection_string: str) -> bool:
+    """Validate MongoDB connection string by attempting to connect"""
+    try:
+        test_client = AsyncMongoClient(connection_string, serverSelectionTimeoutMS=5000)
+        await test_client.server_info()
+        return True
+    except Exception as e:
+        return str(e)
 
 
 if __name__ == "__main__":

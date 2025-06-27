@@ -106,7 +106,13 @@ def display_login_form():
                                     )
                                     st.session_state.segments = segments
                                     st.session_state.has_loaded_segments = True
-                                    st.success(f"Login successful! Project loaded.")
+                                    
+                                    # Set timer mode from project settings
+                                    project_timer_mode = project.get('timer_mode', 'current')
+                                    st.session_state.timer_mode = project_timer_mode
+                                    
+                                    timer_desc = "Current Timer (Automatic)" if project_timer_mode == "current" else "PET Timer (Manual Control)"
+                                    st.success(f"Login successful! Project loaded with {timer_desc}.")
                                 else:
                                     st.warning("Login successful but project data could not be loaded.")
                         else:
@@ -151,10 +157,11 @@ def display_register_form():
         source_file = None
         mt_file = None
         project_id = None
+        timer_mode = "current"
 
         # Role-specific fields
         if role == "Project Manager":
-            st.subheader("Project Manager Setup")
+            st.write("#### Project Manager Setup")
             
             # MongoDB connection string
             mongo_connection = st.text_input(
@@ -178,8 +185,18 @@ def display_register_form():
                 help="Upload the machine translation output file"
             )
             
+            # Timer mode selection for Project Managers
+            st.write("**Timer Settings for Translators**")
+            timer_mode = st.radio(
+                "Select timer mode for your translators:",
+                options=["current", "pet"],
+                format_func=lambda x: "Current Timer (Automatic)" if x == "current" else "PET Timer (Manual Control)",
+                help="Current Timer: Automatic time tracking with idle detection. PET Timer: Manual start/pause control for research.",
+                horizontal=True
+            )
+            
         elif role == "Translator":
-            st.subheader("Translator Setup")
+            st.write("#### Translator Setup")
             
             # Project ID input for Translators
             project_id = st.text_input(
@@ -250,8 +267,10 @@ def display_register_form():
                             
                             if user_created:
                                 # Create project and get project ID
-                                new_project_id = asyncio.run(create_project(new_name, new_surname, source_text, mt_output))
+                                new_project_id = asyncio.run(create_project(new_name, new_surname, source_text, mt_output, timer_mode))
+                                timer_desc = "Current Timer (Automatic)" if timer_mode == "current" else "PET Timer (Manual Control)"
                                 st.success(f"✅ Registration successful! Your Project ID is: **{new_project_id}**")
+                                st.info(f"Timer mode set to: **{timer_desc}**")
                                 st.info("Share this Project ID with your translators so they can join your project.")
                                 st.info("Please proceed to login with your credentials")
                             else:

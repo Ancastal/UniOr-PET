@@ -88,7 +88,7 @@ async def validate_mongo_connection(connection_string: str) -> bool:
 
 
 async def create_project(project_manager_name: str, project_manager_surname: str, 
-                        source_text: str, mt_output: str) -> str:
+                        source_text: str, mt_output: str, timer_mode: str = "current") -> str:
     """Create a new project for a project manager and return project ID"""
     import uuid
     
@@ -104,6 +104,7 @@ async def create_project(project_manager_name: str, project_manager_surname: str
         'project_manager_surname': project_manager_surname,
         'source_text': source_text,
         'mt_output': mt_output,
+        'timer_mode': timer_mode,
         'created_at': datetime.now(timezone.utc),
         'translators': []  # List of assigned translators
     }

@@ -88,6 +88,8 @@ def display_header():
         """
         <style>
         div[data-testid="stSidebarHeader"] > img {
+            margin-top: 60px;
+            margin-bottom: 40px;
             height: 150px; /* Set your desired height */
         }
         </style>

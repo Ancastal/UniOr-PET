@@ -155,7 +155,7 @@ def display_review_page():
 def display_sidebar_settings():
     """Display sidebar settings and controls"""
     with st.sidebar:
-        st.write("Welcome to the **MT Post-Editing Tool**.")
+        st.write("")
         st.markdown("## 🧑‍💻 Tool Settings")
 
         # Add Review All button at the top of settings

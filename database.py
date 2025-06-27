@@ -85,3 +85,52 @@ async def validate_mongo_connection(connection_string: str) -> bool:
         return True
     except Exception as e:
         return str(e)
+
+
+async def create_project(project_manager_name: str, project_manager_surname: str, 
+                        source_text: str, mt_output: str) -> str:
+    """Create a new project for a project manager and return project ID"""
+    import uuid
+    
+    client = get_mongo_connection()
+    db = client['mtpe_database']
+    projects = db['projects']
+    
+    project_id = str(uuid.uuid4())[:8]  # Short project ID
+    
+    project_doc = {
+        'project_id': project_id,
+        'project_manager_name': project_manager_name,
+        'project_manager_surname': project_manager_surname,
+        'source_text': source_text,
+        'mt_output': mt_output,
+        'created_at': datetime.now(timezone.utc),
+        'translators': []  # List of assigned translators
+    }
+    
+    await projects.insert_one(project_doc)
+    return project_id
+
+
+async def get_project_by_id(project_id: str) -> dict:
+    """Get project details by project ID"""
+    client = get_mongo_connection()
+    db = client['mtpe_database']
+    projects = db['projects']
+    
+    project = await projects.find_one({'project_id': project_id})
+    return project
+
+
+async def assign_translator_to_project(project_id: str, translator_name: str, translator_surname: str) -> bool:
+    """Assign a translator to a project"""
+    client = get_mongo_connection()
+    db = client['mtpe_database']
+    projects = db['projects']
+    
+    result = await projects.update_one(
+        {'project_id': project_id},
+        {'$addToSet': {'translators': {'name': translator_name, 'surname': translator_surname}}}
+    )
+    
+    return result.modified_count > 0

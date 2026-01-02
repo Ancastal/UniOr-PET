@@ -256,6 +256,86 @@ def verify_time_recorded(segment_id: int) -> bool:
     return edit_time > 1
 
 
+@st.dialog("📖 How to Use UniOr-PET", width="large")
+def show_instructions():
+    """Display instructions modal"""
+
+    # Two columns for different user types
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### 👨‍💻 For Translators")
+        st.markdown("""
+        1. First, please obtain a **project key** from your Project Manager.
+        2. **Register** your account using the project key you received.
+        3. **Login** to your workspace, and your assigned files will load automatically.
+        4. You can now edit segments one by one while the tool tracks your time.
+        5. Don't worry about saving - your progress automatically saves to your PM's database.
+        """)
+
+    with col2:
+        st.markdown("#### 👔 For Project Managers")
+        st.markdown("""
+        1. Please **register** your account and upload both your source and translation files.
+        2. Choose your database: we recommend **Free Supabase**, or you can use your own MongoDB/Supabase.
+        3. You'll receive a unique **project key** after registration.
+        4. Share this key with your translators, and they'll automatically receive your files.
+        5. All translators will use your chosen data, so you can monitor their progress.
+        """)
+
+    st.divider()
+
+    # Key features with a cooler layout
+    st.markdown("### ✨Key Features")
+    # Empty line for spacing
+    st.markdown("")
+
+    # Create 3 columns for a grid layout
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
+
+    with row1_col1:
+        with st.container(border=True):
+            st.markdown("### ⏱️")
+            st.markdown("**Time Tracking**")
+            st.caption("Automatic editing time recording per segment")
+
+    with row1_col2:
+        with st.container(border=True):
+            st.markdown("### 📊")
+            st.markdown("**Quality Metrics**")
+            st.caption("Track insertions, deletions & editing patterns")
+
+    with row1_col3:
+        with st.container(border=True):
+            st.markdown("### 💾")
+            st.markdown("**Auto-Save**")
+            st.caption("Cloud backup of your work in real-time")
+
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+
+    with row2_col1:
+        with st.container(border=True):
+            st.markdown("### 📖")
+            st.markdown("**Context View**")
+            st.caption("See surrounding segments while editing")
+
+    with row2_col2:
+        with st.container(border=True):
+            st.markdown("### 👀")
+            st.markdown("**Review mode**")
+            st.caption("Review and search all your edits at once")
+
+    with row2_col3:
+        with st.container(border=True):
+            st.markdown("### 🔒")
+            st.markdown("**Data Security**")
+            st.caption("Your data is encrypted and protected")
+
+    st.divider()
+
+    # Contact info at the bottom
+    st.info("💬 **Need Help?** Contact antonio.castaldo@phd.unipi.it")
+
 def display_review_page():
     """Display the review page for all segments"""
     st.markdown("## 👀 Review All Segments")
@@ -391,6 +471,10 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
+        # Button to open instructions modal
+        if st.button("📖 How to Use UniOr-PET", type="secondary"):
+            show_instructions()
+
         # Login/Register tabs with improved styling
         tabs = st.tabs(["🔑 Login", "✨ Register"])
 
@@ -423,6 +507,77 @@ def main():
                                 st.session_state.role = role
                                 st.session_state.db_type = db_type
                                 st.session_state.db_connection = db_connection
+
+                                # Auto-load for translators: prioritize saved progress, fallback to project files
+                                if role == "translator":
+                                    try:
+                                        # Get user's database manager
+                                        user_db_manager = get_database_manager(db_type, db_connection)
+
+                                        # First, try to load saved progress
+                                        try:
+                                            metrics_df, full_text, time_tracker_dict, timer_mode = asyncio.run(
+                                                user_db_manager.load_progress(name, surname)
+                                            )
+
+                                            if full_text and len(full_text) > 0:
+                                                # Saved progress exists - load it
+                                                st.session_state.segments = full_text
+                                                st.session_state.has_loaded_segments = True
+                                                st.session_state.auto_loaded_from_project = False
+
+                                                # Load edit metrics
+                                                if not metrics_df.empty:
+                                                    st.session_state.edit_metrics = [
+                                                        EditMetrics(**row) for row in metrics_df.to_dict('records')
+                                                    ]
+
+                                                # Load timer data
+                                                if timer_mode:
+                                                    st.session_state.timer_mode = timer_mode
+                                                if time_tracker_dict:
+                                                    from time_tracker import TimeTracker
+                                                    st.session_state.time_tracker = TimeTracker.from_dict(
+                                                        time_tracker_dict,
+                                                        timer_mode=timer_mode
+                                                    )
+                                            else:
+                                                # No saved progress, load fresh project files
+                                                raise ValueError("No saved progress")
+                                        except:
+                                            # No saved progress, load fresh project files
+                                            project_key = asyncio.run(user_db_manager.get_user_project_key(name, surname))
+
+                                            if project_key:
+                                                # Load project files
+                                                file_data = asyncio.run(user_db_manager.load_project_files(project_key))
+
+                                                if file_data:
+                                                    source_filename, translation_filename, source_content, translation_content = file_data
+
+                                                    # Convert content to segments
+                                                    from io import BytesIO
+
+                                                    source_file_obj = BytesIO(source_content.encode('utf-8'))
+                                                    translation_file_obj = BytesIO(translation_content.encode('utf-8'))
+
+                                                    # Set names for the objects
+                                                    source_file_obj.name = source_filename
+                                                    translation_file_obj.name = translation_filename
+
+                                                    # Load segments
+                                                    segments = load_segments(source_file_obj, translation_file_obj)
+                                                    st.session_state.segments = segments
+                                                    st.session_state.has_loaded_segments = True
+                                                    st.session_state.auto_loaded_from_project = True
+                                                else:
+                                                    st.session_state.auto_loaded_from_project = False
+                                            else:
+                                                st.session_state.auto_loaded_from_project = False
+                                    except Exception as e:
+                                        st.warning(f"Could not auto-load files: {str(e)}")
+                                        st.session_state.auto_loaded_from_project = False
+
                                 st.success("Login successful!")
                                 st.rerun()
                             else:
@@ -446,8 +601,51 @@ def main():
             """, unsafe_allow_html=True)
 
         with tabs[1]:
+            st.subheader("Create Account")
+
+            # Role selection outside form for reactive UI
+            role = st.selectbox(
+                "I am a...",
+                ["Translator", "Project Manager"],
+                key="reg_role"
+            )
+
+            # File upload for PM - must be outside form
+            if role == "Project Manager":
+                st.markdown("**Project Files**")
+                st.info("Upload your source and translation files. These will be automatically loaded for all translators in your project.")
+
+                pm_source_file = st.file_uploader(
+                    "Source text file (one sentence per line)",
+                    type=['txt'],
+                    key="pm_source_upload",
+                    help="This file will be stored and shared with all translators"
+                )
+                pm_translation_file = st.file_uploader(
+                    "Translation file (one sentence per line)",
+                    type=['txt'],
+                    key="pm_translation_upload",
+                    help="This file will be stored and shared with all translators"
+                )
+
+                # Validate files if uploaded
+                if pm_source_file and pm_translation_file:
+                    try:
+                        # Store in session state for use in form
+                        st.session_state.pm_files_validated = True
+                        st.session_state.pm_source_file = pm_source_file
+                        st.session_state.pm_translation_file = pm_translation_file
+
+                        # Validate files can be loaded
+                        test_segments = load_segments(pm_source_file, pm_translation_file)
+                        st.success(f"✅ Files validated: {len(test_segments)} segments found")
+                    except ValueError as e:
+                        st.error(f"❌ File validation error: {str(e)}")
+                        st.session_state.pm_files_validated = False
+                else:
+                    st.session_state.pm_files_validated = False
+
             with st.form("register_form"):
-                st.subheader("Create Account")
                 new_name = st.text_input("Name", key="reg_name", placeholder="Enter your name")
                 new_surname = st.text_input("Surname", key="reg_surname", placeholder="Enter your surname")
 
@@ -462,18 +660,60 @@ def main():
                                                    type="password",
                                                    placeholder="Repeat password")
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    placeholder_select = st.empty()
-                with col2:
-                    placeholder_config = st.empty()
-
                 # Password requirements hint
                 st.caption("""
                     Password requirements:
                     - At least 8 characters
                     - Mix of letters and numbers
                     """)
+
+                # Initialize variables that may not be defined depending on role
+                db_choice = None
+                db_connection = None
+                project_key = None
+
+                # Show different configuration based on role
+                if role == "Project Manager":
+                    # Database selection - only for Project Managers
+                    st.markdown("**Database Configuration**")
+                    db_choice = st.selectbox(
+                        "Database Option",
+                        ["Free Supabase (Recommended)", "My Own MongoDB", "My Own Supabase"],
+                        help="Choose where to store your project data"
+                    )
+
+                    # Show connection string input based on choice
+                    db_connection = None
+                    if db_choice == "My Own MongoDB":
+                        db_connection = st.text_input(
+                            "MongoDB Connection String",
+                            type="password",
+                            help="Enter your MongoDB connection string: mongodb+srv://username:password@cluster.domain/database",
+                            placeholder="mongodb+srv://..."
+                        )
+                    elif db_choice == "My Own Supabase":
+                        supabase_url = st.text_input(
+                            "Supabase Project URL",
+                            placeholder="https://yourproject.supabase.co",
+                            help="Your Supabase project URL"
+                        )
+                        supabase_key = st.text_input(
+                            "Supabase API Key",
+                            type="password",
+                            placeholder="Your API key",
+                            help="Your Supabase anon/public API key"
+                        )
+                        # Combine URL and key with | separator
+                        if supabase_url and supabase_key:
+                            db_connection = f"{supabase_url}|{supabase_key}"
+                else:
+                    # Project key input - only for Translators
+                    st.markdown("**Project Access**")
+                    project_key = st.text_input(
+                        "Project Key",
+                        placeholder="Enter your project key",
+                        help="Ask your Project Manager for the project key"
+                    )
 
                 register_button = st.form_submit_button("Create Account", use_container_width=True)
 
@@ -497,6 +737,15 @@ def main():
                         project_key_value = None
 
                         if role == "Project Manager":
+                            # Validate files are uploaded
+                            if not st.session_state.get('pm_files_validated', False):
+                                st.error("❌ Both source and translation files are required for Project Managers")
+                                return
+
+                            # Get files from session state
+                            pm_source_file = st.session_state.pm_source_file
+                            pm_translation_file = st.session_state.pm_translation_file
+
                             # Determine database type for Project Managers
                             if db_choice == "Free Supabase (Recommended)":
                                 db_type = "free_supabase"
@@ -552,72 +801,64 @@ def main():
                                 new_password,
                                 db_role,
                                 db_type,
-                                db_connection
+                                db_connection,
+                                project_key_value
                             )):
                                 st.success("✅ Registration successful!")
+
                                 if role == "Project Manager":
-                                    st.info("Your project key is: **" + f"{new_surname}_{new_name}" + "**")
-                                    st.info("Share this key with your translators so they can join your project")
+                                    # Create project and save files
+                                    project_key = f"{new_surname}_{new_name}"
+
+                                    try:
+                                        # Get PM's database manager (where project data will be stored)
+                                        pm_db_manager = get_database_manager(db_type, db_connection)
+
+                                        # Create project record
+                                        asyncio.run(pm_db_manager.create_project(
+                                            project_key,
+                                            new_name,
+                                            new_surname,
+                                            db_type,
+                                            db_connection
+                                        ))
+
+                                        # Save project files
+                                        source_content = pm_source_file.getvalue().decode("utf-8")
+                                        translation_content = pm_translation_file.getvalue().decode("utf-8")
+
+                                        # Re-validate to get segment count
+                                        segments = load_segments(pm_source_file, pm_translation_file)
+
+                                        asyncio.run(pm_db_manager.save_project_files(
+                                            project_key,
+                                            pm_source_file.name,
+                                            pm_translation_file.name,
+                                            source_content,
+                                            translation_content,
+                                            len(segments)
+                                        ))
+
+                                        st.success("✅ Project files uploaded successfully!")
+                                        st.info("Your project key is: **" + project_key + "**")
+                                        st.info("Share this key with your translators so they can join your project")
+                                    except Exception as e:
+                                        st.error(f"❌ Error saving project files: {str(e)}")
+                                        st.warning("Your account was created but files were not saved. Please contact support.")
                                 else:
                                     st.info("Please proceed to login with your credentials")
-                                # Clear registration fields
+
+                                # Clear registration fields and file state
                                 st.session_state.pop('reg_name', None)
                                 st.session_state.pop('reg_surname', None)
                                 st.session_state.pop('reg_password', None)
+                                st.session_state.pop('pm_files_validated', None)
+                                st.session_state.pop('pm_source_file', None)
+                                st.session_state.pop('pm_translation_file', None)
                             else:
                                 st.error("An account with these details already exists")
                     else:
                         st.error("Please fill in all fields")
-
-            with placeholder_select:
-                    role = st.selectbox(
-                        "I am a...",
-                        ["Translator", "Project Manager"],
-                    )
-
-            with placeholder_config:
-                    # Show different configuration based on role
-                    if role == "Project Manager":
-                        # Database selection - only for Project Managers
-                        st.markdown("**Database Configuration**")
-                        db_choice = st.selectbox(
-                            "Database Option",
-                            ["Free Supabase (Recommended)", "My Own MongoDB", "My Own Supabase"],
-                            help="Choose where to store your project data"
-                        )
-
-                        # Show connection string input based on choice
-                        db_connection = None
-                        if db_choice == "My Own MongoDB":
-                            db_connection = st.text_input(
-                                "MongoDB Connection String",
-                                type="password",
-                                help="Enter your MongoDB connection string: mongodb+srv://username:password@cluster.domain/database",
-                                placeholder="mongodb+srv://..."
-                            )
-                        elif db_choice == "My Own Supabase":
-                            supabase_url = st.text_input(
-                                "Supabase Project URL",
-                                placeholder="https://yourproject.supabase.co",
-                                help="Your Supabase project URL"
-                            )
-                            supabase_key = st.text_input(
-                                "Supabase API Key",
-                                type="password",
-                                placeholder="Your API key",
-                                help="Your Supabase anon/public API key"
-                            )
-                            # Combine URL and key with | separator
-                            if supabase_url and supabase_key:
-                                db_connection = f"{supabase_url}|{supabase_key}"
-                    else:
-                        # Project key input - only for Translators
-                        st.markdown("**Project Access**")
-                        project_key = st.text_input(
-                            "Project Key",
-                            placeholder="Enter your project key",
-                            help="Ask your Project Manager for the project key"
-                        )
 
             st.markdown("""
                 <div class="info-sidebar">
@@ -815,27 +1056,7 @@ def main():
             """, unsafe_allow_html=True)
 
             with st.expander("Instructions", expanded=False):
-                st.markdown("##### Getting Started")
-                st.markdown("""
-                1. Enter your name and surname in the sidebar to enable progress tracking
-                2. Upload a text file containing one translation per line
-                3. Edit each segment to improve the translation quality
-                """)
-
-                st.markdown("##### Navigation")
-                st.markdown("""
-                - Use the segment selector dropdown to jump to any segment
-                - Use the Previous/Next buttons to move between segments
-                - The progress bar shows your overall completion status
-                """)
-
-                st.markdown("##### Features")
-                st.markdown("""
-                - 🔄 **Auto-save:** Your progress is automatically saved as you edit (when enabled)
-                - 📊 **Real-time metrics:** Track editing time, insertions, and deletions
-                - 👀 **Visual diff:** See your changes highlighted in real-time
-                - 💾 **Progress tracking:** Resume your work at any time
-                """)
+                st.image("static/pet_infographic.png")
 
             st.markdown("""
                         <div class="info-card">
@@ -848,49 +1069,54 @@ def main():
 
             # File upload with styled container - only show if no segments are loaded
             if len(st.session_state.segments) == 0:
-                st.info("If you have a previous project, load it by clicking on the '📂 Load' button in the sidebar!")
-                with st.container():
-                    source_file = st.file_uploader(
-                        "Upload source text file (one sentence per line)",
-                        type=['txt'],
-                        key="source_upload"
-                    )
-                    translation_file = st.file_uploader(
-                        "Upload translation file (one sentence per line)",
-                        type=['txt'],
-                        key="translation_upload"
-                    )
-
-                if source_file and translation_file:
-                    # Add timer mode selection before loading segments
-                    if st.session_state.timer_mode is None:
-                        st.divider()
-                        st.write("### 🕒 Timer Mode")
-                        timer_mode = st.radio(
-                            "Choose your preferred timer mode:",
-                            ["Current Timer", "PET Timer"],
-                            help="""
-                            **Current Timer**: Automatically tracks time as you edit.\n
-                            **PET Timer**: Manual start/pause control with editing disabled while paused.
-                            """,
-                            horizontal=True
+                # Check if files were auto-loaded from project
+                if st.session_state.get('auto_loaded_from_project', False):
+                    st.info("✅ Project files have been automatically loaded from your project.")
+                    st.info("If you need to reload, use the '📂 Load' button in the sidebar.")
+                else:
+                    st.info("If you have a previous project, load it by clicking on the '📂 Load' button in the sidebar!")
+                    with st.container():
+                        source_file = st.file_uploader(
+                            "Upload source text file (one sentence per line)",
+                            type=['txt'],
+                            key="source_upload"
+                        )
+                        translation_file = st.file_uploader(
+                            "Upload translation file (one sentence per line)",
+                            type=['txt'],
+                            key="translation_upload"
                         )
 
-                        if st.button("Start Project", type="primary"):
-                            st.session_state.timer_mode = "current" if timer_mode == "Current Timer" else "pet"
-                            st.session_state.time_tracker.set_timer_mode(st.session_state.timer_mode)
+                    if source_file and translation_file:
+                        # Add timer mode selection before loading segments
+                        if st.session_state.timer_mode is None:
+                            st.divider()
+                            st.write("### 🕒 Timer Mode")
+                            timer_mode = st.radio(
+                                "Choose your preferred timer mode:",
+                                ["Current Timer", "PET Timer"],
+                                help="""
+                                **Current Timer**: Automatically tracks time as you edit.\n
+                                **PET Timer**: Manual start/pause control with editing disabled while paused.
+                                """,
+                                horizontal=True
+                            )
+
+                            if st.button("Start Project", type="primary"):
+                                st.session_state.timer_mode = "current" if timer_mode == "Current Timer" else "pet"
+                                st.session_state.time_tracker.set_timer_mode(st.session_state.timer_mode)
+                                try:
+                                    st.session_state.segments = load_segments(source_file, translation_file)
+                                    st.rerun()
+                                except ValueError as e:
+                                    st.error(str(e))
+                            return
+                        else:
                             try:
                                 st.session_state.segments = load_segments(source_file, translation_file)
                                 st.rerun()
                             except ValueError as e:
                                 st.error(str(e))
-                        return
-                    else:
-                        try:
-                            st.session_state.segments = load_segments(source_file, translation_file)
-                            st.rerun()
-                        except ValueError as e:
-                            st.error(str(e))
 
             if not st.session_state.segments:
                 return
@@ -971,6 +1197,13 @@ def main():
                                 break
 
                         current_source, current_translation = st.session_state.segments[st.session_state.current_segment]
+
+                        # Get the original translation (for View Changes comparison)
+                        # If there's an edit metric, use its original field; otherwise use current_translation
+                        original_translation = (most_recent_edit.original if most_recent_edit
+                                              else (existing_edit.original if existing_edit
+                                                    else current_translation))
+
                         initial_value = (most_recent_edit.edited if most_recent_edit
                                         else (existing_edit.edited if existing_edit
                                               else current_translation))
@@ -1216,13 +1449,13 @@ def main():
                             if st.button("🏁 Finish", key="finish_button", type="primary"):
                                 # Verify time was recorded if segment was edited
                                 current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
-                                original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
+                                original_text = st.session_state.original_texts.get(st.session_state.current_segment, original_translation)
 
                                 if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
                                     st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
                                     return
 
-                                save_metrics(current_source, current_translation, edited_text)
+                                save_metrics(current_source, original_translation, edited_text)
                                 st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                                 st.session_state.current_segment += 1
                                 # Ensure new segment starts paused in PET mode
@@ -1234,7 +1467,7 @@ def main():
                             if st.button("Next ➡️", key="next_segment"):
                                 # Verify time was recorded if segment was edited
                                 current_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
-                                original_text = st.session_state.original_texts.get(st.session_state.current_segment, current_translation)
+                                original_text = st.session_state.original_texts.get(st.session_state.current_segment, original_translation)
 
                                 if current_text != original_text and not verify_time_recorded(st.session_state.current_segment):
                                     st.error("⚠️ No editing time was recorded for this segment. If you're using PET mode, make sure to wait a bit before moving to the next segment.")
@@ -1243,7 +1476,7 @@ def main():
                                 # Update final stats for current segment
                                 st.session_state.time_tracker.update_activity(st.session_state.current_segment)
                                 # Save metrics and pause tracking
-                                save_metrics(current_source, current_translation, edited_text)
+                                save_metrics(current_source, original_translation, edited_text)
                                 st.session_state.time_tracker.pause_segment(st.session_state.current_segment)
                                 # Move to next segment
                                 st.session_state.current_segment += 1
@@ -1282,7 +1515,7 @@ def main():
                                     )
 
                             insertions, deletions = calculate_edit_distance(
-                                current_translation, edited_text)
+                                original_translation, edited_text)
                             with col3:
                                 st.metric(
                                     "Insertions",
@@ -1299,7 +1532,7 @@ def main():
 
                         with st.expander("View Changes", expanded=True):
                             st.markdown(highlight_differences(
-                                current_translation, edited_text), unsafe_allow_html=True)
+                                original_translation, edited_text), unsafe_allow_html=True)
 
             else:
                 # We've completed all segments, show the results
@@ -1426,6 +1659,12 @@ def save_metrics(source: str, original: str, edited: str):
     st.session_state.edit_metrics = [m for m in st.session_state.edit_metrics
                                      if m.segment_id != st.session_state.current_segment]
     st.session_state.edit_metrics.append(metrics)
+
+    # Update the segments list with the edited text
+    current_idx = st.session_state.current_segment
+    if 0 <= current_idx < len(st.session_state.segments):
+        # Update the segment tuple with the edited translation
+        st.session_state.segments[current_idx] = (source, edited)
 
     # Auto-save if enabled and user info is available
     if (st.session_state.get('auto_save', False) and

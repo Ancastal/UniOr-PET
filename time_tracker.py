@@ -18,29 +18,37 @@ class EditingSession:
 
     def to_dict(self) -> dict:
         return {
-            'start_time': self.start_time,
-            'pause_time': self.pause_time,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'pause_time': self.pause_time.isoformat() if self.pause_time else None,
             'total_paused_time': self.total_paused_time,
             'is_paused': self.is_paused,
-            'last_activity': self.last_activity,
+            'last_activity': self.last_activity.isoformat() if self.last_activity else None,
             'active_time': self.active_time,
             'idle_time': self.idle_time,
             'is_pet_paused': self.is_pet_paused,
-            'segment_view_time': self.segment_view_time
+            'segment_view_time': self.segment_view_time.isoformat() if self.segment_view_time else None
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> 'EditingSession':
+        # Helper to parse datetime strings
+        def parse_datetime(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            return value  # Already a datetime object
+
         return cls(
-            start_time=data['start_time'],
-            pause_time=data['pause_time'],
+            start_time=parse_datetime(data['start_time']),
+            pause_time=parse_datetime(data.get('pause_time')),
             total_paused_time=data['total_paused_time'],
             is_paused=data['is_paused'],
-            last_activity=data.get('last_activity', datetime.now()),
+            last_activity=parse_datetime(data.get('last_activity')) or datetime.now(),
             active_time=data.get('active_time', 0.0),
             idle_time=data.get('idle_time', 0.0),
             is_pet_paused=data.get('is_pet_paused', False),
-            segment_view_time=data.get('segment_view_time', None)
+            segment_view_time=parse_datetime(data.get('segment_view_time'))
         )
 
 class TimeTracker:

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     db_type TEXT,
     db_connection TEXT,
+    project_key TEXT,
     UNIQUE(name, surname)
 );
 
@@ -27,9 +28,37 @@ CREATE TABLE IF NOT EXISTS user_progress (
     UNIQUE(user_name, user_surname)
 );
 
+-- Create projects table
+CREATE TABLE IF NOT EXISTS projects (
+    id BIGSERIAL PRIMARY KEY,
+    project_key TEXT NOT NULL UNIQUE,
+    pm_name TEXT NOT NULL,
+    pm_surname TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    db_type TEXT,
+    db_connection TEXT
+);
+
+-- Create project_files table
+CREATE TABLE IF NOT EXISTS project_files (
+    id BIGSERIAL PRIMARY KEY,
+    project_key TEXT NOT NULL UNIQUE,
+    source_filename TEXT NOT NULL,
+    translation_filename TEXT NOT NULL,
+    source_content TEXT NOT NULL,
+    translation_content TEXT NOT NULL,
+    line_count INTEGER NOT NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_users_name_surname ON users(name, surname);
+CREATE INDEX IF NOT EXISTS idx_users_project_key ON users(project_key);
 CREATE INDEX IF NOT EXISTS idx_user_progress_name_surname ON user_progress(user_name, user_surname);
+CREATE INDEX IF NOT EXISTS idx_projects_key ON projects(project_key);
+CREATE INDEX IF NOT EXISTS idx_projects_pm ON projects(pm_name, pm_surname);
+CREATE INDEX IF NOT EXISTS idx_project_files_key ON project_files(project_key);
 
 -- Enable Row Level Security (RLS) - optional but recommended
 -- ALTER TABLE users ENABLE ROW LEVEL SECURITY;

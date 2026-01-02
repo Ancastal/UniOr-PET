@@ -22,7 +22,7 @@ class DatabaseManager(ABC):
 
     @abstractmethod
     async def create_user(self, name: str, surname: str, password: str, role: str = "translator",
-                         db_type: str = None, db_connection: str = None) -> bool:
+                         db_type: str = None, db_connection: str = None, project_key: str = None) -> bool:
         """Create a new user"""
         pass
 
@@ -40,6 +40,34 @@ class DatabaseManager(ABC):
     @abstractmethod
     async def load_progress(self, user_name: str, user_surname: str) -> Tuple[pd.DataFrame, List, Dict, str]:
         """Load user progress and return (metrics_df, segments, time_tracker_dict, timer_mode)"""
+        pass
+
+    @abstractmethod
+    async def create_project(self, project_key: str, pm_name: str, pm_surname: str,
+                            db_type: str, db_connection: str) -> bool:
+        """Create a new project record"""
+        pass
+
+    @abstractmethod
+    async def get_project(self, project_key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve project by key"""
+        pass
+
+    @abstractmethod
+    async def save_project_files(self, project_key: str, source_filename: str,
+                                translation_filename: str, source_content: str,
+                                translation_content: str, line_count: int) -> bool:
+        """Store project files"""
+        pass
+
+    @abstractmethod
+    async def load_project_files(self, project_key: str) -> Optional[Tuple[str, str, str, str]]:
+        """Load project files and return (source_filename, translation_filename, source_content, translation_content)"""
+        pass
+
+    @abstractmethod
+    async def get_user_project_key(self, user_name: str, user_surname: str) -> Optional[str]:
+        """Get project key for a user (mainly for translators)"""
         pass
 
 
@@ -66,7 +94,7 @@ class MongoDBManager(DatabaseManager):
         return self.client['mtpe_database']
 
     async def create_user(self, name: str, surname: str, password: str, role: str = "translator",
-                         db_type: str = None, db_connection: str = None) -> bool:
+                         db_type: str = None, db_connection: str = None, project_key: str = None) -> bool:
         """Create a new user in MongoDB"""
         users = self.db['users']
 
@@ -87,7 +115,8 @@ class MongoDBManager(DatabaseManager):
             'role': role,
             'created_at': datetime.now(timezone.utc),
             'db_type': db_type,
-            'db_connection': db_connection
+            'db_connection': db_connection,
+            'project_key': project_key
         }
 
         await users.insert_one(user_doc)
@@ -149,6 +178,79 @@ class MongoDBManager(DatabaseManager):
 
         return pd.DataFrame(), [], {}, 'current'
 
+    async def create_project(self, project_key: str, pm_name: str, pm_surname: str,
+                            db_type: str, db_connection: str) -> bool:
+        """Create a new project record in MongoDB"""
+        projects = self.db['projects']
+
+        # Check if project already exists
+        existing = await projects.find_one({'project_key': project_key})
+        if existing:
+            return False
+
+        project_doc = {
+            'project_key': project_key,
+            'pm_name': pm_name,
+            'pm_surname': pm_surname,
+            'created_at': datetime.now(timezone.utc),
+            'last_updated': datetime.now(timezone.utc),
+            'db_type': db_type,
+            'db_connection': db_connection
+        }
+
+        await projects.insert_one(project_doc)
+        return True
+
+    async def get_project(self, project_key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve project by key from MongoDB"""
+        projects = self.db['projects']
+        return await projects.find_one({'project_key': project_key})
+
+    async def save_project_files(self, project_key: str, source_filename: str,
+                                translation_filename: str, source_content: str,
+                                translation_content: str, line_count: int) -> bool:
+        """Store project files in MongoDB"""
+        collection = self.db['project_files']
+
+        file_doc = {
+            'project_key': project_key,
+            'source_filename': source_filename,
+            'translation_filename': translation_filename,
+            'source_content': source_content,
+            'translation_content': translation_content,
+            'line_count': line_count,
+            'uploaded_at': datetime.now(timezone.utc)
+        }
+
+        # Upsert to handle re-uploads
+        await collection.update_one(
+            {'project_key': project_key},
+            {'$set': file_doc},
+            upsert=True
+        )
+        return True
+
+    async def load_project_files(self, project_key: str) -> Optional[Tuple[str, str, str, str]]:
+        """Load project files from MongoDB"""
+        collection = self.db['project_files']
+
+        file_data = await collection.find_one({'project_key': project_key})
+
+        if file_data:
+            return (
+                file_data['source_filename'],
+                file_data['translation_filename'],
+                file_data['source_content'],
+                file_data['translation_content']
+            )
+        return None
+
+    async def get_user_project_key(self, user_name: str, user_surname: str) -> Optional[str]:
+        """Get project key for a user from MongoDB"""
+        users = self.db['users']
+        user = await users.find_one({'name': user_name, 'surname': user_surname})
+        return user.get('project_key') if user else None
+
 
 class SupabaseManager(DatabaseManager):
     """Supabase implementation of database operations"""
@@ -166,7 +268,7 @@ class SupabaseManager(DatabaseManager):
         return self._client
 
     async def create_user(self, name: str, surname: str, password: str, role: str = "translator",
-                         db_type: str = None, db_connection: str = None) -> bool:
+                         db_type: str = None, db_connection: str = None, project_key: str = None) -> bool:
         """Create a new user in Supabase"""
         # Check if user already exists
         response = self.client.table('users').select('*').eq('name', name).eq('surname', surname).execute()
@@ -182,7 +284,8 @@ class SupabaseManager(DatabaseManager):
             'role': role,
             'created_at': datetime.now(timezone.utc).isoformat(),
             'db_type': db_type,
-            'db_connection': db_connection
+            'db_connection': db_connection,
+            'project_key': project_key
         }
 
         self.client.table('users').insert(user_doc).execute()
@@ -236,6 +339,77 @@ class SupabaseManager(DatabaseManager):
             return metrics_df, full_text, time_tracker, timer_mode
 
         return pd.DataFrame(), [], {}, 'current'
+
+    async def create_project(self, project_key: str, pm_name: str, pm_surname: str,
+                            db_type: str, db_connection: str) -> bool:
+        """Create a new project record in Supabase"""
+        # Check if project already exists
+        response = self.client.table('projects').select('*').eq('project_key', project_key).execute()
+        if response.data:
+            return False
+
+        project_doc = {
+            'project_key': project_key,
+            'pm_name': pm_name,
+            'pm_surname': pm_surname,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'last_updated': datetime.now(timezone.utc).isoformat(),
+            'db_type': db_type,
+            'db_connection': db_connection
+        }
+
+        self.client.table('projects').insert(project_doc).execute()
+        return True
+
+    async def get_project(self, project_key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve project by key from Supabase"""
+        response = self.client.table('projects').select('*').eq('project_key', project_key).execute()
+        return response.data[0] if response.data else None
+
+    async def save_project_files(self, project_key: str, source_filename: str,
+                                translation_filename: str, source_content: str,
+                                translation_content: str, line_count: int) -> bool:
+        """Store project files in Supabase"""
+        file_doc = {
+            'project_key': project_key,
+            'source_filename': source_filename,
+            'translation_filename': translation_filename,
+            'source_content': source_content,
+            'translation_content': translation_content,
+            'line_count': line_count,
+            'uploaded_at': datetime.now(timezone.utc).isoformat()
+        }
+
+        # Check if exists
+        response = self.client.table('project_files').select('*').eq('project_key', project_key).execute()
+
+        if response.data:
+            # Update
+            self.client.table('project_files').update(file_doc).eq('project_key', project_key).execute()
+        else:
+            # Insert
+            self.client.table('project_files').insert(file_doc).execute()
+
+        return True
+
+    async def load_project_files(self, project_key: str) -> Optional[Tuple[str, str, str, str]]:
+        """Load project files from Supabase"""
+        response = self.client.table('project_files').select('*').eq('project_key', project_key).execute()
+
+        if response.data:
+            file_data = response.data[0]
+            return (
+                file_data['source_filename'],
+                file_data['translation_filename'],
+                file_data['source_content'],
+                file_data['translation_content']
+            )
+        return None
+
+    async def get_user_project_key(self, user_name: str, user_surname: str) -> Optional[str]:
+        """Get project key for a user from Supabase"""
+        response = self.client.table('users').select('project_key').eq('name', user_name).eq('surname', user_surname).execute()
+        return response.data[0]['project_key'] if response.data else None
 
 
 @st.cache_resource

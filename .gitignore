@@ -2,3 +2,8 @@ streamlit.pem
 .streamlit/secrets.toml
 __pycache__/
 *.pyc
+.env
+*.log
+.DS_Store
+venv/
+env/

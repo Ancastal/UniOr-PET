@@ -1,9 +1,10 @@
+# Core dependencies for UniOr-PET main app
 streamlit>=1.24.0
 pandas>=1.5.3
 pymongo>=4.3.3
-plotly>=5.13.1
 pytz>=2023.3
-unbabel-comet
-bert-score
-nltk
-evaluate
+supabase>=2.0.0
+
+# Note: Heavy ML dependencies (unbabel-comet, bert-score, nltk, evaluate)
+# are only needed for the management/evaluation features.
+# If you need evaluation features, use requirements.full.txt instead.

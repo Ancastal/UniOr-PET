@@ -96,22 +96,24 @@ def calculate_edit_distance(original: str, edited: str) -> Tuple[int, int]:
 
 
 def load_segments(source_file, translation_file) -> List[Tuple[str, str]]:
-    """Load segments from uploaded files"""
+    """Return 1-to-1 tuples of (source_line, translation_line), preserving blanks."""
     if source_file is None or translation_file is None:
         return []
 
-    source_content = source_file.getvalue().decode("utf-8")
-    translation_content = translation_file.getvalue().decode("utf-8")
+    source_lines      = source_file.getvalue().decode("utf-8").splitlines()
+    translation_lines = translation_file.getvalue().decode("utf-8").splitlines()
 
-    source_lines = [line.strip()
-                    for line in source_content.split('\n') if line.strip()]
-    translation_lines = [line.strip()
-                         for line in translation_content.split('\n') if line.strip()]
+    source_lines      = [line.rstrip('\r') for line in source_lines]
+    translation_lines = [line.rstrip('\r') for line in translation_lines]
 
-    # Ensure both files have same number of lines
+    if source_lines and translation_lines and source_lines[-1] == translation_lines[-1] == '':
+        source_lines.pop(); translation_lines.pop()
+
     if len(source_lines) != len(translation_lines):
         raise ValueError(
-            "Source and translation files must have the same number of lines")
+            f"Line count mismatch: source has {len(source_lines)}, "
+            f"translation has {len(translation_lines)}"
+        )
 
     return list(zip(source_lines, translation_lines))
 
@@ -152,6 +154,10 @@ async def init_session_state():
         st.session_state.timer_mode = None
     if 'has_loaded_segments' not in st.session_state:
         st.session_state.has_loaded_segments = False
+    if 'db_type' not in st.session_state:
+        st.session_state.db_type = None
+    if 'db_connection' not in st.session_state:
+        st.session_state.db_connection = None
 
 
 async def load_css():
@@ -184,127 +190,60 @@ def highlight_differences(original: str, edited: str) -> str:
     return ' '.join(html_parts)
 
 
-@st.cache_resource
-def get_cached_mongo_connection():
-    """Get cached MongoDB connection"""
-    connection_string = st.secrets["MONGO_CONNECTION_STRING"]
-    client = AsyncMongoClient(connection_string,
-                          tlsAllowInvalidCertificates=True)
-    return client  # Return just the client, not the database
+async def save_to_database(user_name: str, user_surname: str, metrics_df: pd.DataFrame):
+    """Save metrics and full text to database"""
+    from db_manager import get_database_manager
 
+    # Get the user's database manager
+    db_manager = get_database_manager(
+        st.session_state.get('db_type'),
+        st.session_state.get('db_connection')
+    )
 
-async def save_to_mongodb(user_name: str, user_surname: str, metrics_df: pd.DataFrame):
-    """Save metrics and full text to MongoDB"""
-    client = get_cached_mongo_connection()
-    db = client['mtpe_database']
-    collection = db['user_progress']
-
-    # Convert DataFrame to dict and add user info
-    progress_data = {
-        'user_name': user_name,
-        'user_surname': user_surname,
-        'last_updated': datetime.now(),
-        'metrics': metrics_df.to_dict('records'),
-        'full_text': st.session_state.segments,
-        'time_tracker': st.session_state.time_tracker.to_dict(),
-        'timer_mode': st.session_state.timer_mode  # Add timer mode to saved data
-    }
-
-    # Update or insert document
-    await collection.update_one(
-        {'user_name': user_name, 'user_surname': user_surname},
-        {'$set': progress_data},
-        upsert=True
+    # Save progress
+    await db_manager.save_progress(
+        user_name,
+        user_surname,
+        metrics_df,
+        st.session_state.segments,
+        st.session_state.time_tracker.to_dict(),
+        st.session_state.timer_mode
     )
 
 
-async def load_from_mongodb(user_name: str, user_surname: str) -> Tuple[pd.DataFrame, List[str]]:
-    """Load metrics and full text from MongoDB"""
-    client = get_cached_mongo_connection()
-    db = client['mtpe_database']
-    collection = db['user_progress']
+async def load_from_database(user_name: str, user_surname: str) -> Tuple[pd.DataFrame, List[str]]:
+    """Load metrics and full text from database"""
+    from db_manager import get_database_manager
 
-    # Find user's progress
-    user_data = await collection.find_one({
-        'user_name': user_name,
-        'user_surname': user_surname
-    })
+    # Get the user's database manager
+    db_manager = get_database_manager(
+        st.session_state.get('db_type'),
+        st.session_state.get('db_connection')
+    )
 
-    if user_data:
-        # Load timer mode first if available
-        if 'timer_mode' in user_data:
-            st.session_state.timer_mode = user_data['timer_mode']
-            # Create TimeTracker with the correct timer mode
-            st.session_state.time_tracker = TimeTracker()
-            st.session_state.time_tracker.set_timer_mode(user_data['timer_mode'])
+    # Load progress
+    metrics_df, full_text, time_tracker_dict, timer_mode = await db_manager.load_progress(
+        user_name,
+        user_surname
+    )
 
-        # Then load time tracker data
-        if 'time_tracker' in user_data:
-            st.session_state.time_tracker = TimeTracker.from_dict(
-                user_data['time_tracker'],
-                timer_mode=user_data.get('timer_mode')  # Pass timer mode to from_dict
-            )
+    # Update session state with loaded data
+    if timer_mode:
+        st.session_state.timer_mode = timer_mode
+        # Create TimeTracker with the correct timer mode
+        st.session_state.time_tracker = TimeTracker()
+        st.session_state.time_tracker.set_timer_mode(timer_mode)
 
-        # Return metrics and full text if they exist
-        metrics = user_data.get('metrics', [])
-        full_text = user_data.get('full_text', [])
+    # Load time tracker data
+    if time_tracker_dict:
+        st.session_state.time_tracker = TimeTracker.from_dict(
+            time_tracker_dict,
+            timer_mode=timer_mode
+        )
 
-        if metrics and full_text:
-            return pd.DataFrame(metrics), full_text
-
-    return pd.DataFrame(), []
+    return metrics_df, full_text
 
 
-def hash_password(password: str) -> str:
-    """Hash password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-async def create_user(name: str, surname: str, password: str, role: str = "translator", mongo_connection: str = None) -> bool:
-    """Create a new user in MongoDB"""
-    client = get_cached_mongo_connection()
-    db = client['mtpe_database']
-    users = db['users']
-
-    # Check if user already exists
-    existing_user = await users.find_one({
-        'name': name,
-        'surname': surname
-    })
-
-    if existing_user:
-        return False
-
-    # Create new user
-    user_doc = {
-        'name': name,
-        'surname': surname,
-        'password': hash_password(password),
-        'role': role,
-        'created_at': datetime.now(timezone.utc),
-        'mongo_connection': mongo_connection
-    }
-
-    await users.insert_one(user_doc)
-    return True
-
-
-async def verify_user(name: str, surname: str, password: str) -> Tuple[bool, str]:
-    """Verify user credentials against MongoDB and return auth status and role"""
-    client = get_cached_mongo_connection()
-    db = client['mtpe_database']
-    users = db['users']
-
-    user = await users.find_one({
-        'name': name,
-        'surname': surname,
-        'password': hash_password(password)
-    })
-
-    if user is None:
-        return False, ""
-
-    return True, user.get('role', 'translator')
 
 
 def verify_time_recorded(segment_id: int) -> bool:
@@ -469,12 +408,21 @@ def main():
                 if submit_button:
                     if name and surname and password:
                         with st.spinner("Verifying credentials..."):
-                            authenticated, role = asyncio.run(verify_user(name, surname, password))
+                            from db_manager import get_database_manager
+
+                            # First, verify with default database (where user accounts are stored)
+                            db_manager = get_database_manager()
+                            authenticated, role, db_type, db_connection = asyncio.run(
+                                db_manager.verify_user(name, surname, password)
+                            )
+
                             if authenticated:
                                 st.session_state.authenticated = True
                                 st.session_state.user_name = name
                                 st.session_state.user_surname = surname
                                 st.session_state.role = role
+                                st.session_state.db_type = db_type
+                                st.session_state.db_connection = db_connection
                                 st.success("Login successful!")
                                 st.rerun()
                             else:
@@ -513,11 +461,12 @@ def main():
                     confirm_password = st.text_input("Confirm Password",
                                                    type="password",
                                                    placeholder="Repeat password")
+
                 col1, col2 = st.columns(2)
                 with col1:
                     placeholder_select = st.empty()
                 with col2:
-                    placeholder_mongo = st.empty()
+                    placeholder_config = st.empty()
 
                 # Password requirements hint
                 st.caption("""
@@ -538,25 +487,79 @@ def main():
                             st.error("Passwords do not match")
                             return
 
-                        # Validate MongoDB connection string for Project Managers
+                        from db_manager import get_database_manager, validate_database_connection
+
+                        # Convert role selection to database value
+                        db_role = "project_manager" if role == "Project Manager" else "translator"
+
+                        db_type = None
+                        db_connection = None
+                        project_key_value = None
+
                         if role == "Project Manager":
-                            if not mongo_connection:
-                                st.error("MongoDB connection string is required for Project Managers")
+                            # Determine database type for Project Managers
+                            if db_choice == "Free Supabase (Recommended)":
+                                db_type = "free_supabase"
+                            elif db_choice == "My Own MongoDB":
+                                db_type = "mongodb"
+                                if not db_connection:
+                                    st.error("MongoDB connection string is required")
+                                    return
+                            elif db_choice == "My Own Supabase":
+                                db_type = "supabase"
+                                if not db_connection:
+                                    st.error("Supabase URL and API key are required")
+                                    return
+
+                            # Validate custom database connections
+                            if db_type in ["mongodb", "supabase"]:
+                                is_valid, error_msg = validate_database_connection(db_type, db_connection)
+                                if not is_valid:
+                                    st.error(f"Invalid database connection: {error_msg}")
+                                    return
+                        else:
+                            # For Translators, validate project key
+                            if not project_key:
+                                st.error("Project key is required for Translators")
                                 return
 
-                            # Validate the connection string
-                            validation_result = asyncio.run(validate_mongo_connection(mongo_connection))
-                            if validation_result is not True:
-                                st.error(f"Invalid MongoDB connection string: {validation_result}")
+                            # Validate project key and get PM's database settings
+                            from db_manager import validate_project_key_and_get_pm_settings
+                            is_valid, pm_db_type, pm_db_connection, error_msg = asyncio.run(
+                                validate_project_key_and_get_pm_settings(project_key)
+                            )
+
+                            if not is_valid:
+                                st.error(f"Invalid project key: {error_msg}")
                                 return
+
+                            # Store the project key (for reference), but the translator will use PM's db settings
+                            project_key_value = project_key
+                            # Translators inherit PM's database settings
+                            db_type = pm_db_type
+                            db_connection = pm_db_connection
 
                         with st.spinner("Creating your account..."):
-                            # Convert role selection to database value
-                            db_role = "project_manager" if role == "Project Manager" else "translator"
-                            # Include MongoDB connection string for project managers
-                            if asyncio.run(create_user(new_name, new_surname, new_password, db_role, mongo_connection if db_role == "project_manager" else None)):
+                            # Get the appropriate database manager (always use default for user creation)
+                            db_manager = get_database_manager()
+
+                            # Create user with database preferences
+                            # Note: db_type and db_connection are set for both PMs and translators
+                            # For translators, they inherit PM's settings
+                            if asyncio.run(db_manager.create_user(
+                                new_name,
+                                new_surname,
+                                new_password,
+                                db_role,
+                                db_type,
+                                db_connection
+                            )):
                                 st.success("✅ Registration successful!")
-                                st.info("Please proceed to login with your credentials")
+                                if role == "Project Manager":
+                                    st.info("Your project key is: **" + f"{new_surname}_{new_name}" + "**")
+                                    st.info("Share this key with your translators so they can join your project")
+                                else:
+                                    st.info("Please proceed to login with your credentials")
                                 # Clear registration fields
                                 st.session_state.pop('reg_name', None)
                                 st.session_state.pop('reg_surname', None)
@@ -572,14 +575,48 @@ def main():
                         ["Translator", "Project Manager"],
                     )
 
-            with placeholder_mongo:
+            with placeholder_config:
+                    # Show different configuration based on role
                     if role == "Project Manager":
-                        # Show MongoDB connection string input for Project Managers
-                        mongo_connection = st.text_input(
-                                        "MongoDB Connection String",
-                                        type="password",
-                                        help="Enter your MongoDB connection string in the format: mongodb+srv://username:password@cluster.domain",
-                                        label_visibility="visible"
+                        # Database selection - only for Project Managers
+                        st.markdown("**Database Configuration**")
+                        db_choice = st.selectbox(
+                            "Database Option",
+                            ["Free Supabase (Recommended)", "My Own MongoDB", "My Own Supabase"],
+                            help="Choose where to store your project data"
+                        )
+
+                        # Show connection string input based on choice
+                        db_connection = None
+                        if db_choice == "My Own MongoDB":
+                            db_connection = st.text_input(
+                                "MongoDB Connection String",
+                                type="password",
+                                help="Enter your MongoDB connection string: mongodb+srv://username:password@cluster.domain/database",
+                                placeholder="mongodb+srv://..."
+                            )
+                        elif db_choice == "My Own Supabase":
+                            supabase_url = st.text_input(
+                                "Supabase Project URL",
+                                placeholder="https://yourproject.supabase.co",
+                                help="Your Supabase project URL"
+                            )
+                            supabase_key = st.text_input(
+                                "Supabase API Key",
+                                type="password",
+                                placeholder="Your API key",
+                                help="Your Supabase anon/public API key"
+                            )
+                            # Combine URL and key with | separator
+                            if supabase_url and supabase_key:
+                                db_connection = f"{supabase_url}|{supabase_key}"
+                    else:
+                        # Project key input - only for Translators
+                        st.markdown("**Project Access**")
+                        project_key = st.text_input(
+                            "Project Key",
+                            placeholder="Enter your project key",
+                            help="Ask your Project Manager for the project key"
                         )
 
             st.markdown("""
@@ -659,9 +696,9 @@ def main():
                         edited_text = st.session_state[f"edit_area_{st.session_state.current_segment}"]
                         save_metrics(current_source, current_translation, edited_text)
 
-                        # Then save everything to MongoDB
+                        # Then save everything to database
                         df = pd.DataFrame([vars(m) for m in st.session_state.edit_metrics])
-                        asyncio.run(save_to_mongodb(
+                        asyncio.run(save_to_database(
                             st.session_state.user_name,
                             st.session_state.user_surname,
                             df))
@@ -672,7 +709,7 @@ def main():
             if st.button("📂 Load", use_container_width=True, disabled=st.session_state.has_loaded_segments):
                 with st.spinner("Loading previous work..."):
                     existing_data, full_text = asyncio.run(
-                        load_from_mongodb(st.session_state.user_name,
+                        load_from_database(st.session_state.user_name,
                                         st.session_state.user_surname))
 
                 if not existing_data.empty and full_text:
@@ -743,8 +780,8 @@ def main():
                     st.session_state.timer_mode = None  # Reset timer mode
                     st.session_state.has_loaded_segments = False  # Reset loaded segments flag
 
-                    # Clear from MongoDB
-                    asyncio.run(save_to_mongodb(
+                    # Clear from database
+                    asyncio.run(save_to_database(
                         st.session_state.user_name,
                         st.session_state.user_surname,
                         pd.DataFrame()  # Empty DataFrame to clear progress
@@ -1395,7 +1432,7 @@ def save_metrics(source: str, original: str, edited: str):
         st.session_state.get('user_name') and
             st.session_state.get('user_surname')):
         df = pd.DataFrame([vars(m) for m in st.session_state.edit_metrics])
-        asyncio.run(save_to_mongodb(st.session_state.user_name,
+        asyncio.run(save_to_database(st.session_state.user_name,
                     st.session_state.user_surname, df))
         st.session_state.last_saved = datetime.now(timezone.utc)
 
@@ -1472,19 +1509,9 @@ def display_results():
     st.markdown("""
                 <div class="info-card">
                     <p><strong>Thanks for using my tool! </strong></p>
-                    <p>Feel free to send me an email for any feedback or suggestions.</p>
+                    <p>Feel free to send me an email at antonio.castaldo@phd.unipi.it for any feedback or suggestions.</p>
                 </div>
         """, unsafe_allow_html=True)
-
-
-async def validate_mongo_connection(connection_string: str) -> bool:
-    """Validate MongoDB connection string by attempting to connect"""
-    try:
-        test_client = AsyncMongoClient(connection_string, serverSelectionTimeoutMS=5000)
-        await test_client.server_info()
-        return True
-    except Exception as e:
-        return str(e)
 
 
 if __name__ == "__main__":

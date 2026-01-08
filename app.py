@@ -508,6 +508,21 @@ def main():
                                 st.session_state.db_type = db_type
                                 st.session_state.db_connection = db_connection
 
+                                # Redirect Project Managers to management interface
+                                if role == "project_manager":
+                                    st.error("⛔ Project Managers cannot access the editing interface.")
+                                    st.info("""
+                                    ### Please use the Project Manager Dashboard
+
+                                    Run the management interface:
+                                    ```bash
+                                    streamlit run management/0_🏢_Manager.py --server.port 8502
+                                    ```
+
+                                    Or access it at: http://localhost:8502
+                                    """)
+                                    st.stop()
+
                                 # Auto-load for translators: prioritize saved progress, fallback to project files
                                 if role == "translator":
                                     try:

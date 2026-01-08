@@ -70,6 +70,11 @@ class DatabaseManager(ABC):
         """Get project key for a user (mainly for translators)"""
         pass
 
+    @abstractmethod
+    async def get_project_translators(self, project_key: str) -> List[Dict[str, Any]]:
+        """Get all translators assigned to a project"""
+        pass
+
 
 class MongoDBManager(DatabaseManager):
     """MongoDB implementation of database operations"""
@@ -251,6 +256,20 @@ class MongoDBManager(DatabaseManager):
         user = await users.find_one({'name': user_name, 'surname': user_surname})
         return user.get('project_key') if user else None
 
+    async def get_project_translators(self, project_key: str) -> List[Dict[str, Any]]:
+        """Get all translators assigned to a project from MongoDB"""
+        users = self.db['users']
+        cursor = users.find({
+            'project_key': project_key,
+            'role': 'translator'
+        })
+        translators = await cursor.to_list(length=None)
+        # Convert ObjectId to string for JSON serialization
+        for translator in translators:
+            if '_id' in translator:
+                translator['_id'] = str(translator['_id'])
+        return translators
+
 
 class SupabaseManager(DatabaseManager):
     """Supabase implementation of database operations"""
@@ -410,6 +429,11 @@ class SupabaseManager(DatabaseManager):
         """Get project key for a user from Supabase"""
         response = self.client.table('users').select('project_key').eq('name', user_name).eq('surname', user_surname).execute()
         return response.data[0]['project_key'] if response.data else None
+
+    async def get_project_translators(self, project_key: str) -> List[Dict[str, Any]]:
+        """Get all translators assigned to a project from Supabase"""
+        response = self.client.table('users').select('*').eq('project_key', project_key).eq('role', 'translator').execute()
+        return response.data if response.data else []
 
 
 @st.cache_resource

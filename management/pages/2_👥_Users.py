@@ -52,56 +52,60 @@ def display_project_info(db_manager, project_key):
         try:
             project = asyncio.run(db_manager.get_project(project_key))
 
-            st.markdown("**Project Details**")
-
-            # Display in a nice card format
-            info_html = f"""
-            <div style="background-color: #f8f9fa; padding: 1.5rem; border-radius: 10px; border: 1px solid #dee2e6;">
-                <p><strong>Project Key:</strong> <code>{project_key}</code></p>
-                <p><strong>Project Manager:</strong> {st.session_state.pm_name} {st.session_state.pm_surname}</p>
-            """
-
-            if project:
-                created_at = project.get('created_at', 'N/A')
-                if isinstance(created_at, datetime):
-                    created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
-                info_html += f"<p><strong>Created:</strong> {created_at}</p>"
-
-                # Get database type
-                db_type_display = {
-                    'free_supabase': 'Free Supabase',
-                    'mongodb': 'MongoDB',
-                    'supabase': 'Custom Supabase'
-                }.get(project.get('db_type', st.session_state.db_type), 'Unknown')
-                info_html += f"<p><strong>Database:</strong> {db_type_display}</p>"
-
             # Load project files
+            files = None
+            segment_count = 0
             try:
                 files = asyncio.run(db_manager.load_project_files(project_key))
                 if files:
-                    source_filename, translation_filename, source_content, translation_content = files
-
-                    info_html += f"<p><strong>Source File:</strong> {source_filename}</p>"
-                    info_html += f"<p><strong>Translation File:</strong> {translation_filename}</p>"
-
-                    # Count segments
+                    source_content = files[2]
                     segment_count = len(source_content.splitlines()) if source_content else 0
-                    info_html += f"<p><strong>Total Segments:</strong> {segment_count}</p>"
             except:
                 pass
 
-            info_html += "</div>"
-            st.markdown(info_html, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown("#### 📋 Project Details")
+
+                # Project Key
+                st.markdown(f"**Project Key:** `{project_key}`")
+
+                # Project Manager
+                st.markdown(f"**Manager:** {st.session_state.pm_name} {st.session_state.pm_surname}")
+
+                # Created date
+                if project:
+                    created_at = project.get('created_at', 'N/A')
+                    if isinstance(created_at, datetime):
+                        created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    st.markdown(f"**Created:** {created_at}")
+
+                    # Database type
+                    db_type_display = {
+                        'free_supabase': 'Free Supabase',
+                        'mongodb': 'MongoDB',
+                        'supabase': 'Custom Supabase'
+                    }.get(project.get('db_type', st.session_state.db_type), 'Unknown')
+                    st.markdown(f"**Database:** {db_type_display}")
+
+                # File information
+                if files:
+                    st.markdown("---")
+                    st.markdown("**📄 Project Files**")
+                    st.markdown(f"• **Source:** {files[0]}")
+                    st.markdown(f"• **Translation:** {files[1]}")
+                    st.markdown(f"• **Total Segments:** {segment_count}")
 
         except Exception as e:
             st.error(f"Error loading project information: {str(e)}")
 
     with col2:
-        st.markdown("**Share Project Key**")
-        st.info(f"Share this key with translators:\n\n`{project_key}`")
+        with st.container(border=True):
+            st.markdown("#### 🔑 Share Project Key")
+            st.code(project_key, language=None)
+            st.caption("Share this key with translators to invite them to your project")
 
-        if st.button("📋 Copy to Clipboard", use_container_width=True):
-            st.toast("Project key copied! (Please use browser copy function)")
+            if st.button("📋 Copy to Clipboard", use_container_width=True):
+                st.toast("Project key ready to copy!")
 
 
 def display_translator_list(db_manager, translators):
@@ -134,10 +138,9 @@ def display_translator_list(db_manager, translators):
 
     # Display count
     st.markdown(f"**Found {len(filtered_translators)} translator(s)**")
+    st.markdown("")
 
-    # Create translator summary table
-    translator_summary = []
-
+    # Display translator cards
     for translator in filtered_translators:
         try:
             # Load progress for this translator
@@ -148,79 +151,68 @@ def display_translator_list(db_manager, translators):
             segments_completed = len(metrics_df) if not metrics_df.empty else 0
             progress_pct = 0
 
-            # Calculate progress percentage if we know total segments
-            # We can estimate from full_text length
+            # Calculate progress percentage
             if len(full_text) > 0 and segments_completed > 0:
                 progress_pct = min((segments_completed / len(full_text)) * 100, 100)
 
-            # Calculate last active (from most recent segment edit)
-            last_active = "Never"
-            if not metrics_df.empty and 'edit_time' in metrics_df.columns:
-                # Use current time as proxy (in production, store timestamps)
-                last_active = "Recently"
+            # Calculate metrics
+            total_time = metrics_df['edit_time'].sum() if not metrics_df.empty and 'edit_time' in metrics_df.columns else 0
+            total_edits = 0
+            if not metrics_df.empty:
+                if 'insertions' in metrics_df.columns and 'deletions' in metrics_df.columns:
+                    total_edits = metrics_df['insertions'].sum() + metrics_df['deletions'].sum()
 
-            status = "✅ Active" if segments_completed > 0 else "⏸️ Not Started"
+            # Determine status
+            if segments_completed > 0:
+                status = "🟢 Active"
+                status_color = "green"
+            else:
+                status = "⚪ Not Started"
+                status_color = "gray"
 
-            translator_summary.append({
-                'Name': translator['name'],
-                'Surname': translator['surname'],
-                'Segments Completed': segments_completed,
-                'Progress': f"{progress_pct:.1f}%",
-                'Status': status,
-                'Last Active': last_active
-            })
+            # Create translator card
+            with st.container(border=True):
+                # Header with name and status
+                col_header1, col_header2 = st.columns([3, 1])
+                with col_header1:
+                    st.markdown(f"#### 👤 {translator['name']} {translator['surname']}")
+                with col_header2:
+                    st.markdown(f"<div style='text-align: right; padding-top: 0.5rem;'>{status}</div>", unsafe_allow_html=True)
 
-        except Exception as e:
-            translator_summary.append({
-                'Name': translator['name'],
-                'Surname': translator['surname'],
-                'Segments Completed': 0,
-                'Progress': "0%",
-                'Status': "⏸️ Not Started",
-                'Last Active': "Never"
-            })
+                # Metrics row
+                col1, col2, col3, col4 = st.columns(4)
 
-    # Display summary table
-    if translator_summary:
-        summary_df = pd.DataFrame(translator_summary)
-        st.dataframe(
-            summary_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # Detailed view for each translator
-        st.markdown("---")
-        st.markdown("### 📋 Translator Details")
-
-        for translator in filtered_translators:
-            with st.expander(f"👤 {translator['name']} {translator['surname']}"):
-                try:
-                    # Load progress
-                    metrics_df, full_text, time_tracker, timer_mode = asyncio.run(
-                        db_manager.load_progress(translator['name'], translator['surname'])
+                with col1:
+                    st.metric(
+                        label="Segments Completed",
+                        value=segments_completed,
+                        help="Number of segments edited"
                     )
 
-                    col1, col2, col3 = st.columns(3)
+                with col2:
+                    st.metric(
+                        label="Progress",
+                        value=f"{progress_pct:.1f}%",
+                        help="Percentage of total segments completed"
+                    )
 
-                    with col1:
-                        st.metric("Segments Completed", len(metrics_df) if not metrics_df.empty else 0)
+                with col3:
+                    st.metric(
+                        label="Editing Time",
+                        value=f"{total_time:.0f}s" if total_time < 60 else f"{total_time/60:.1f}m",
+                        help="Total time spent editing"
+                    )
 
-                    with col2:
-                        total_time = metrics_df['edit_time'].sum() if not metrics_df.empty and 'edit_time' in metrics_df.columns else 0
-                        st.metric("Total Editing Time", f"{total_time:.1f}s")
+                with col4:
+                    st.metric(
+                        label="Total Edits",
+                        value=int(total_edits),
+                        help="Total insertions + deletions"
+                    )
 
-                    with col3:
-                        total_edits = 0
-                        if not metrics_df.empty:
-                            if 'insertions' in metrics_df.columns and 'deletions' in metrics_df.columns:
-                                total_edits = metrics_df['insertions'].sum() + metrics_df['deletions'].sum()
-                        st.metric("Total Edits", int(total_edits))
-
-                    # Display detailed metrics if available
-                    if not metrics_df.empty:
-                        st.markdown("**Segment-Level Metrics**")
-
+                # Expandable detailed view
+                if not metrics_df.empty:
+                    with st.expander("📊 View Detailed Metrics"):
                         # Show first 10 segments
                         display_df = metrics_df.head(10).copy()
 
@@ -242,12 +234,26 @@ def display_translator_list(db_manager, translators):
                             )
 
                             if len(metrics_df) > 10:
-                                st.info(f"Showing first 10 of {len(metrics_df)} segments. Use Analytics page for full view.")
-                    else:
-                        st.info("This translator hasn't started editing yet.")
+                                st.caption(f"Showing first 10 of {len(metrics_df)} segments. Use Analytics page for full view.")
 
-                except Exception as e:
-                    st.error(f"Error loading data for this translator: {str(e)}")
+        except Exception as e:
+            # Error card
+            with st.container(border=True):
+                col_header1, col_header2 = st.columns([3, 1])
+                with col_header1:
+                    st.markdown(f"#### 👤 {translator['name']} {translator['surname']}")
+                with col_header2:
+                    st.markdown(f"<div style='text-align: right; padding-top: 0.5rem;'>⚪ Not Started</div>", unsafe_allow_html=True)
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Segments Completed", 0)
+                with col2:
+                    st.metric("Progress", "0%")
+                with col3:
+                    st.metric("Editing Time", "0s")
+                with col4:
+                    st.metric("Total Edits", 0)
 
 
 def main():
